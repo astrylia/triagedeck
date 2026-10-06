@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: TriageDeck
+  datasource:
+    url: jdbc:postgresql://localhost:5432/triagedeck
+    username: triagedeck
+    password: triagedeck_dev
+  jpa:
+    hibernate:
+      ddl-auto: validate   # 表结构由 Flyway 管理，Hibernate 只校验实体和表是否一致
+    open-in-view: false    # 不在视图层保持数据库会话，避免隐蔽的懒加载查询
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
