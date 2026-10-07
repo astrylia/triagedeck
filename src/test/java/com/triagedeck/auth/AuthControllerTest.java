@@ -36,20 +36,22 @@ class AuthControllerTest {
 
     @Test
     void registerCreatesUserWithHashedPassword() throws Exception {
-        register("Alice@Acme.com", "correct-horse", "Alice")
+        register("Alice@Acme.com", "correct-horse-battery", "Alice")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value("alice@acme.com"))
                 .andExpect(jsonPath("$.passwordHash").doesNotExist());
 
         var saved = userRepository.findByEmail("alice@acme.com").orElseThrow();
-        assertThat(saved.getPasswordHash()).isNotEqualTo("correct-horse").startsWith("{argon2}");
+        assertThat(saved.getPasswordHash())
+                .isNotEqualTo("correct-horse-battery")
+                .startsWith("{argon2}");
     }
 
     @Test
     void registerRejectsEmailAlreadyUsedIgnoringCase() throws Exception {
-        register("alice@acme.com", "correct-horse", "Alice").andExpect(status().isCreated());
+        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
 
-        register("ALICE@acme.com", "another-pass", "Alice 2")
+        register("ALICE@acme.com", "another-long-password", "Alice 2")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_USED"));
     }
@@ -60,6 +62,15 @@ class AuthControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.errors[*].field").value(containsInAnyOrder("email", "password", "name")));
+    }
+
+    @Test
+    void registerRequiresPasswordOfAtLeast15Characters() throws Exception {
+        register("alice@acme.com", "x".repeat(14), "Alice")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("password"));
+
+        register("alice@acme.com", "x".repeat(15), "Alice").andExpect(status().isCreated());
     }
 
     @Test
@@ -85,14 +96,14 @@ class AuthControllerTest {
     @Test
     void loginReturnsTokenThatAuthenticatesRequests() throws Exception {
         String userId = JsonPath.read(
-                register("alice@acme.com", "correct-horse", "Alice")
+                register("alice@acme.com", "correct-horse-battery", "Alice")
                         .andReturn()
                         .getResponse()
                         .getContentAsString(),
                 "$.id");
 
         String token = JsonPath.read(
-                login("Alice@acme.com", "correct-horse")
+                login("Alice@acme.com", "correct-horse-battery")
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.tokenType").value("Bearer"))
                         .andReturn()
@@ -108,7 +119,7 @@ class AuthControllerTest {
 
     @Test
     void loginRejectsWrongPasswordAndUnknownEmailTheSameWay() throws Exception {
-        register("alice@acme.com", "correct-horse", "Alice").andExpect(status().isCreated());
+        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
 
         String wrongPassword = login("alice@acme.com", "wrong-password")
                 .andExpect(status().isUnauthorized())
@@ -116,7 +127,7 @@ class AuthControllerTest {
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
-        String unknownEmail = login("nobody@acme.com", "correct-horse")
+        String unknownEmail = login("nobody@acme.com", "correct-horse-battery")
                 .andExpect(status().isUnauthorized())
                 .andReturn()
                 .getResponse()

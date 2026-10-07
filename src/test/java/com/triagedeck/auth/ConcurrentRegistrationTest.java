@@ -51,7 +51,7 @@ class ConcurrentRegistrationTest {
         return mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"email": "%s", "password": "correct-horse", "name": "Alice"}
+                        {"email": "%s", "password": "correct-horse-battery", "name": "Alice"}
                         """.formatted(email)));
     }
 }
