@@ -2,6 +2,7 @@ package com.triagedeck.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,18 +67,37 @@ class AuthControllerTest {
 
     @Test
     void registerRequiresPasswordOfAtLeast15Characters() throws Exception {
-        register("alice@acme.com", "x".repeat(14), "Alice")
+        register("alice@acme.com", "correct-horse-", "Alice")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("password"));
 
-        register("alice@acme.com", "x".repeat(15), "Alice").andExpect(status().isCreated());
+        register("alice@acme.com", "correct-horse-b", "Alice").andExpect(status().isCreated());
+    }
+
+    @Test
+    void registerRejectsCommonOrGuessablePasswords() throws Exception {
+        // 出现在常见泄露密码列表里（比较时忽略大小写）
+        register("alice@acme.com", "1Q2W3E4R5T6Y7U8I9O0P", "Alice")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("password"))
+                .andExpect(jsonPath("$.errors[0].message").value(containsString("too common")));
+
+        // 直接拿自己的邮箱当密码
+        register("alice.smith@acme.com", "Alice.Smith@acme.com", "Alice")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("password"));
+
+        assertThat(userRepository.findByEmail("alice@acme.com")).isEmpty();
+        assertThat(userRepository.findByEmail("alice.smith@acme.com")).isEmpty();
     }
 
     @Test
     void registerAcceptsLongUnicodePasswordUpTo128Characters() throws Exception {
         // 64 个汉字 = 192 字节：bcrypt 的 72 字节上限会拒绝它，Argon2 没有这个限制
-        register("alice@acme.com", "密".repeat(64), "Alice").andExpect(status().isCreated());
-        login("alice@acme.com", "密".repeat(64)).andExpect(status().isOk());
+        String chinesePassword = "一二三四五六七八".repeat(8);
+        register("alice@acme.com", chinesePassword, "Alice").andExpect(status().isCreated());
+        login("alice@acme.com", chinesePassword).andExpect(status().isOk());
 
         register("bob@acme.com", "x".repeat(129), "Bob")
                 .andExpect(status().isBadRequest())

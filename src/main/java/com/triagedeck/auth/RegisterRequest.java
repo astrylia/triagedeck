@@ -4,6 +4,8 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+// 常见密码检查要用到邮箱和名字，所以标在整个 record 上（见 NotCommonPassword）
+@NotCommonPassword
 public record RegisterRequest(
         @NotBlank @Email @Size(max = 254) String email,
         // 最少 15 位：NIST SP 800-63B（第 4 版）对"只靠密码登录、没有双因素认证"的要求。
