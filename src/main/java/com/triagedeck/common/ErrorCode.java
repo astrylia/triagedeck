@@ -11,7 +11,8 @@ public enum ErrorCode {
     // 邮箱不存在和密码错误都用这一个，不告诉调用方是哪一种，避免被用来探测哪些邮箱注册过
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Invalid email or password"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
-    EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered");
+    EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered"),
+    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 
     private final HttpStatus status;
     private final String message;

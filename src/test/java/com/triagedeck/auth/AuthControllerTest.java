@@ -61,6 +61,28 @@ class AuthControllerTest {
     }
 
     @Test
+    void registerLimitsPasswordByUtf8BytesNotCharacters() throws Exception {
+        // 24 个汉字 = 72 字节，刚好在 bcrypt 上限内
+        register("alice@acme.com", "密".repeat(24), "Alice").andExpect(status().isCreated());
+
+        // 25 个汉字 = 75 字节：字符数只有 25，但字节数超了，必须是 400 而不是加密时抛异常变成 500
+        register("bob@acme.com", "密".repeat(25), "Bob")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("password"));
+    }
+
+    @Test
+    void loginWithOverlongPasswordIsInvalidCredentialsNotServerError() throws Exception {
+        register("alice@acme.com", "correct-horse", "Alice").andExpect(status().isCreated());
+
+        // 超过 72 字节的密码不可能是任何人的正确密码，按"邮箱或密码错误"处理
+        login("alice@acme.com", "密".repeat(25))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
     void loginReturnsTokenThatAuthenticatesRequests() throws Exception {
         String userId = JsonPath.read(
                 register("alice@acme.com", "correct-horse", "Alice")

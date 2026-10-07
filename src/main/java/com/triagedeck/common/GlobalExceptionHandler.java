@@ -2,10 +2,14 @@ package com.triagedeck.common;
 
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -18,6 +22,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /** 所有业务异常都走这一个方法，新增业务异常不需要再改这里。 */
     @ExceptionHandler(BusinessException.class)
@@ -42,5 +48,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .toList();
         problem.setProperty("errors", errors);
         return handleExceptionInternal(ex, problem, headers, status, request);
+    }
+
+    /**
+     * 兜底：其他方法都没处理的异常，统一返回 500 INTERNAL_ERROR。
+     * 完整堆栈只写进日志，响应里不带异常信息，避免把 SQL、类名等内部细节暴露给客户端。
+     */
+    @ExceptionHandler(Exception.class)
+    ProblemDetail handleUnexpected(Exception e) throws Exception {
+        // 权限相关的异常要交还给 Spring Security 处理（返回 401/403），不能被这里吞成 500
+        if (e instanceof AccessDeniedException || e instanceof AuthenticationException) {
+            throw e;
+        }
+        log.error("Unhandled exception", e);
+        ErrorCode code = ErrorCode.INTERNAL_ERROR;
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(code.status(), code.message());
+        problem.setProperty("code", code.name());
+        return problem;
     }
 }
