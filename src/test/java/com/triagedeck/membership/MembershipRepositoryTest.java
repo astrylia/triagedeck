@@ -41,15 +41,22 @@ class MembershipRepositoryTest {
     }
 
     @Test
-    void findByIdUserIdReturnsAllMembershipsOfUser() {
+    void findByIdUserIdReturnsOnlyThatUsersMemberships() {
         Organization acme = organizationRepository.saveAndFlush(new Organization("Acme", "acme"));
         Organization globex = organizationRepository.saveAndFlush(new Organization("Globex", "globex"));
         AppUser alice = userRepository.saveAndFlush(new AppUser("alice@acme.com", "hash", "Alice"));
+        AppUser bob = userRepository.saveAndFlush(new AppUser("bob@acme.com", "hash", "Bob"));
         membershipRepository.saveAndFlush(new Membership(alice.getId(), acme.getId(), Role.OWNER));
         membershipRepository.saveAndFlush(new Membership(alice.getId(), globex.getId(), Role.AGENT));
+        // Bob 也在 Acme：如果查询漏了 user_id 条件，Alice 的结果里就会混进 Bob
+        membershipRepository.saveAndFlush(new Membership(bob.getId(), acme.getId(), Role.AGENT));
 
         assertThat(membershipRepository.findByIdUserId(alice.getId()))
-                .extracting(Membership::getRole)
-                .containsExactlyInAnyOrder(Role.OWNER, Role.AGENT);
+                .extracting(Membership::getId)
+                .containsExactlyInAnyOrder(
+                        new MembershipId(alice.getId(), acme.getId()), new MembershipId(alice.getId(), globex.getId()));
+        assertThat(membershipRepository.findByIdUserId(bob.getId()))
+                .extracting(Membership::getId)
+                .containsExactly(new MembershipId(bob.getId(), acme.getId()));
     }
 }
