@@ -29,7 +29,9 @@ public class SecurityConfig {
                 // 无状态 REST API：不用 Session，也就不需要 CSRF 防护
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.requestMatchers("/api/auth/**", "/actuator/health")
+                // /error 是 Spring Boot 内置的错误页，出错时请求会被转发到这里生成 500 响应；
+                // 不放行的话，未登录接口出错时会被拦成一个空的 401，真正的错误就被掩盖了
+                .authorizeHttpRequests(auth -> auth.requestMatchers("/api/auth/**", "/actuator/health", "/error")
                         .permitAll()
                         .anyRequest()
                         .authenticated())

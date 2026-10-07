@@ -4,6 +4,7 @@ import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,7 +38,13 @@ public class AuthService {
         }
         String passwordHash = passwordEncoder.encode(password);
         AppUser user = new AppUser(normalizedEmail, passwordHash, name);
-        return userRepository.save(user);
+        try {
+            // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
+            return userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException e) {
+            // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
+            throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
+        }
     }
 
     /**
