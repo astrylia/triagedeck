@@ -2,6 +2,7 @@ package com.triagedeck.auth;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -10,7 +11,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -42,8 +45,14 @@ public class SecurityConfig {
 
     @Bean
     PasswordEncoder passwordEncoder() {
-        // 默认用 bcrypt；存进数据库的值带 {bcrypt} 前缀，以后换算法也能兼容旧密码
-        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+        // 新密码用 Argon2id（OWASP 首选），存进数据库的值带 {argon2} 前缀。
+        // 校验时按前缀选算法，所以以前存的 {bcrypt} 密码依然能登录，不需要迁移数据。
+        Map<String, PasswordEncoder> encoders = Map.of(
+                "argon2",
+                Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8(),
+                "bcrypt",
+                new BCryptPasswordEncoder());
+        return new DelegatingPasswordEncoder("argon2", encoders);
     }
 
     @Bean

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
+import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +42,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.passwordHash").doesNotExist());
 
         var saved = userRepository.findByEmail("alice@acme.com").orElseThrow();
-        assertThat(saved.getPasswordHash()).isNotEqualTo("correct-horse").startsWith("{bcrypt}");
+        assertThat(saved.getPasswordHash()).isNotEqualTo("correct-horse").startsWith("{argon2}");
     }
 
     @Test
@@ -61,25 +63,23 @@ class AuthControllerTest {
     }
 
     @Test
-    void registerLimitsPasswordByUtf8BytesNotCharacters() throws Exception {
-        // 24 个汉字 = 72 字节，刚好在 bcrypt 上限内
-        register("alice@acme.com", "密".repeat(24), "Alice").andExpect(status().isCreated());
+    void registerAcceptsLongUnicodePasswordUpTo128Characters() throws Exception {
+        // 64 个汉字 = 192 字节：bcrypt 的 72 字节上限会拒绝它，Argon2 没有这个限制
+        register("alice@acme.com", "密".repeat(64), "Alice").andExpect(status().isCreated());
+        login("alice@acme.com", "密".repeat(64)).andExpect(status().isOk());
 
-        // 25 个汉字 = 75 字节：字符数只有 25，但字节数超了，必须是 400 而不是加密时抛异常变成 500
-        register("bob@acme.com", "密".repeat(25), "Bob")
+        register("bob@acme.com", "x".repeat(129), "Bob")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.errors[0].field").value("password"));
     }
 
     @Test
-    void loginWithOverlongPasswordIsInvalidCredentialsNotServerError() throws Exception {
-        register("alice@acme.com", "correct-horse", "Alice").andExpect(status().isCreated());
+    void userWithLegacyBcryptHashCanStillLogIn() throws Exception {
+        // 模拟换算法之前注册的用户：数据库里存的是 {bcrypt} 前缀的哈希
+        String legacyHash = "{bcrypt}" + new BCryptPasswordEncoder().encode("old-password");
+        userRepository.save(new AppUser("legacy@acme.com", legacyHash, "Legacy"));
 
-        // 超过 72 字节的密码不可能是任何人的正确密码，按"邮箱或密码错误"处理
-        login("alice@acme.com", "密".repeat(25))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+        login("legacy@acme.com", "old-password").andExpect(status().isOk());
     }
 
     @Test
