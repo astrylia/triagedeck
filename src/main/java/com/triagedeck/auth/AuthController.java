@@ -2,8 +2,11 @@ package com.triagedeck.auth;
 
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
+import com.triagedeck.ratelimit.RateLimitProperties;
+import com.triagedeck.ratelimit.RateLimiter;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -21,24 +24,34 @@ public class AuthController {
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
     private final AppUserRepository userRepository;
+    private final RateLimiter rateLimiter;
+    private final RateLimitProperties limits;
 
     public AuthController(
             AuthService authService,
             EmailVerificationService emailVerificationService,
-            AppUserRepository userRepository) {
+            AppUserRepository userRepository,
+            RateLimiter rateLimiter,
+            RateLimitProperties limits) {
         this.authService = authService;
         this.emailVerificationService = emailVerificationService;
         this.userRepository = userRepository;
+        this.rateLimiter = rateLimiter;
+        this.limits = limits;
     }
 
     @PostMapping("/api/auth/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public UserResponse register(@Valid @RequestBody RegisterRequest request) {
+    public UserResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
+        rateLimiter.check("register:ip:" + http.getRemoteAddr(), limits.registerPerIp());
         return UserResponse.from(authService.register(request));
     }
 
     @PostMapping("/api/auth/login")
-    public TokenResponse login(@Valid @RequestBody LoginRequest request) {
+    public TokenResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        // 两层：按 IP 挡住一台机器到处试；按邮箱挡住换着 IP 猜同一个账号的密码
+        rateLimiter.check("login:ip:" + http.getRemoteAddr(), limits.loginPerIp());
+        rateLimiter.check("login:email:" + AppUser.normalizeEmail(request.email()), limits.loginPerEmail());
         return authService.login(request);
     }
 
@@ -65,7 +78,10 @@ public class AuthController {
     /** 重新发送验证邮件。不需要登录（没验证就登录不了）；无论邮箱是否注册，都返回 204。 */
     @PostMapping("/api/auth/resend-verification-email")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void resendVerificationEmail(@Valid @RequestBody ResendVerificationEmailRequest request) {
+    public void resendVerificationEmail(
+            @Valid @RequestBody ResendVerificationEmailRequest request, HttpServletRequest http) {
+        // 同一个邮箱已有 60 秒冷却；这里再按 IP 限制，防止有人换着邮箱批量触发发信
+        rateLimiter.check("resend-verification:ip:" + http.getRemoteAddr(), limits.resendVerificationPerIp());
         emailVerificationService.resend(request.email());
     }
 

@@ -111,16 +111,17 @@ class EmailVerificationTest {
     void resendRespectsTheCooldownAndStopsOnceVerified() throws Exception {
         UUID userId = register("alice@acme.com");
 
+        mailpit.awaitTextsSentTo("alice@acme.com", 1);
         // 注册时刚发过一封：马上重发，接口照样返回 204，但不会真的再发
         resend("alice@acme.com").andExpect(status().isNoContent());
-        assertThat(mailpit.textsSentTo("alice@acme.com")).hasSize(1);
+        mailpit.assertStaysAt("alice@acme.com", 1);
 
         // 把上一封的发送时间往前挪，模拟过了冷却时间
         jdbcTemplate.update(
                 "UPDATE email_verification_token SET created_at = created_at - INTERVAL '2 minutes' WHERE user_id = ?",
                 userId);
         resend("Alice@Acme.com").andExpect(status().isNoContent());
-        assertThat(mailpit.textsSentTo("alice@acme.com")).hasSize(2);
+        mailpit.awaitTextsSentTo("alice@acme.com", 2);
 
         // 新链接能用；验证之后再重发，不会再发信
         verify(tokenFromLatestEmailTo("alice@acme.com")).andExpect(status().isNoContent());
@@ -128,14 +129,14 @@ class EmailVerificationTest {
                 "UPDATE email_verification_token SET created_at = created_at - INTERVAL '2 minutes' WHERE user_id = ?",
                 userId);
         resend("alice@acme.com").andExpect(status().isNoContent());
-        assertThat(mailpit.textsSentTo("alice@acme.com")).hasSize(2);
+        mailpit.assertStaysAt("alice@acme.com", 2);
     }
 
     @Test
     void resendForUnknownEmailLooksTheSameAndSendsNothing() throws Exception {
         // 和已注册邮箱的响应一模一样，没法用这个接口探测谁注册过
         resend("nobody@acme.com").andExpect(status().isNoContent());
-        assertThat(mailpit.textsSentTo("nobody@acme.com")).isEmpty();
+        mailpit.assertStaysAt("nobody@acme.com", 0);
     }
 
     @Test
@@ -145,12 +146,11 @@ class EmailVerificationTest {
         UUID userId = register("alice@acme.com");
 
         assertThat(userRepository.findById(userId)).isPresent();
-        assertThat(mailpit.textsSentTo("alice@acme.com")).isEmpty();
+        mailpit.assertStaysAt("alice@acme.com", 0);
     }
 
     private String tokenFromLatestEmailTo(String address) {
-        List<String> texts = mailpit.textsSentTo(address);
-        assertThat(texts).isNotEmpty();
+        List<String> texts = mailpit.awaitTextsSentTo(address, 1);
         Matcher link = VERIFY_LINK.matcher(texts.getFirst());
         assertThat(link.find()).as("verification link in: %s", texts.getFirst()).isTrue();
         return link.group(1);

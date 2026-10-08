@@ -1,5 +1,6 @@
 package com.triagedeck.common;
 
+import com.triagedeck.ratelimit.RateLimitExceededException;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -32,6 +33,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(code.status(), e.getMessage());
         problem.setProperty("code", code.name());
         return problem;
+    }
+
+    /** 限流：和其他业务错误一样的响应体，另外加上 Retry-After 响应头（单位：秒）。 */
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitExceededException e) {
+        long seconds = Math.max(1, (e.getRetryAfter().toMillis() + 999) / 1000);
+        return ResponseEntity.status(e.getErrorCode().status())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
+                .body(handleBusiness(e));
     }
 
     /** @Valid 校验失败：补上 code，并列出每个出错的字段，方便前端标红对应输入框。 */

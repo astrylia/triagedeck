@@ -32,6 +32,8 @@ public enum ErrorCode {
     INVITATION_ALREADY_USED(HttpStatus.CONFLICT, "Invitation has already been used"),
     // 410 Gone：这个东西以前有效，现在永久失效了
     INVITATION_EXPIRED(HttpStatus.GONE, "Invitation has expired"),
+    // 请求太频繁（限流）。响应头 Retry-After 告诉前端还要等几秒
+    TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "Too many requests; please try again later"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 
     private final HttpStatus status;

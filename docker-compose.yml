@@ -16,6 +16,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+  # 限流计数存在 Redis 里：部署多个实例时，所有实例共用同一份计数
+  redis:
+    image: redis:8.8
+    container_name: triage-redis
+    ports:
+      - "6379:6379"
   # 本地开发用的"假邮箱服务器"：程序发出的邮件都被它截下来，不会真的发出去
   # 收到的邮件在浏览器里看：http://localhost:8025
   mailpit:

@@ -11,6 +11,10 @@ spring:
     open-in-view: false    # 不在视图层保持数据库会话，避免隐蔽的懒加载查询
   flyway:
     enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   mail:
     # 本地开发发到 docker compose 里的 Mailpit（不需要账号密码）
     # 部署时用环境变量指向真实的发信服务：MAIL_HOST、MAIL_PORT，账号密码用 SPRING_MAIL_USERNAME / SPRING_MAIL_PASSWORD
@@ -35,3 +39,20 @@ triagedeck:
     verify-email-url: ${VERIFY_EMAIL_URL:http://localhost:5173/verify-email}
     verification-token-ttl: 24h
     resend-cooldown: 60s
+  rate-limit:
+    enabled: true
+    # 同一个 IP 每分钟最多尝试登录 20 次
+    login-per-ip:
+      limit: 20
+      window: 1m
+    # 同一个邮箱每分钟最多尝试登录 10 次（不管从哪个 IP 来），防止分散 IP 猜同一个账号的密码
+    login-per-email:
+      limit: 10
+      window: 1m
+    register-per-ip:
+      limit: 10
+      window: 1h
+    # 同一个邮箱另有 60 秒的重发冷却（见上面的 resend-cooldown）
+    resend-verification-per-ip:
+      limit: 5
+      window: 10m

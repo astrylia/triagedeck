@@ -4,6 +4,7 @@ import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
+import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,8 @@ public class AuthService {
     private final TokenService tokenService;
     private final RefreshTokenService refreshTokenService;
     private final EmailVerificationService emailVerificationService;
+    // 邮箱不存在时拿来做一次"假的"密码比对，见 login
+    private final String dummyPasswordHash;
 
     public AuthService(
             AppUserRepository userRepository,
@@ -29,6 +32,7 @@ public class AuthService {
         this.tokenService = tokenService;
         this.refreshTokenService = refreshTokenService;
         this.emailVerificationService = emailVerificationService;
+        this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-constant-time-login");
     }
 
     /**
@@ -65,9 +69,12 @@ public class AuthService {
     @Transactional
     public TokenResponse login(LoginRequest request) {
         String normalizedEmail = AppUser.normalizeEmail(request.email());
-        AppUser user = userRepository
-                .findByEmail(normalizedEmail)
-                .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
+        Optional<AppUser> found = userRepository.findByEmail(normalizedEmail);
+        // 邮箱不存在时也做一次密码比对：Argon2 故意算得很慢，如果只有邮箱存在时才比对，
+        // "邮箱不存在"的请求会明显更快返回，别人就能靠计时判断哪些邮箱注册过
+        String hash = found.map(AppUser::getPasswordHash).orElse(dummyPasswordHash);
+        boolean passwordMatches = passwordEncoder.matches(request.password(), hash);
+        AppUser user = found.filter(u -> passwordMatches)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
         // 放在密码校验之后：不知道密码的人，拿不到"这个邮箱注册了但没验证"的信息
         if (!user.isEmailVerified()) {

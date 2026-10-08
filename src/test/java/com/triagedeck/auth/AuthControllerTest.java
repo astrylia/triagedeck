@@ -3,6 +3,9 @@ package com.triagedeck.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -21,6 +24,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +41,9 @@ class AuthControllerTest {
 
     @Autowired
     AppUserRepository userRepository;
+
+    @MockitoSpyBean
+    PasswordEncoder passwordEncoder;
 
     @Test
     void registerCreatesUserWithHashedPassword() throws Exception {
@@ -160,6 +168,14 @@ class AuthControllerTest {
                 .getContentAsString();
         // 两种失败的响应体必须完全一样，否则攻击者能据此判断邮箱是否注册过
         assertThat(unknownEmail).isEqualTo(wrongPassword);
+    }
+
+    @Test
+    void unknownEmailStillRunsAPasswordCheck() throws Exception {
+        // 邮箱不存在时也要比对一次密码，响应时间才和"邮箱存在、密码错误"差不多，没法靠计时探测邮箱
+        login("nobody@acme.com", "correct-horse-battery").andExpect(status().isUnauthorized());
+
+        verify(passwordEncoder).matches(eq("correct-horse-battery"), anyString());
     }
 
     @Test

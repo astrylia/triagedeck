@@ -1,11 +1,14 @@
 package com.triagedeck;
 
+import static org.awaitility.Awaitility.await;
+
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.testcontainers.containers.GenericContainer;
@@ -37,6 +40,18 @@ public class Mailpit {
             texts.add(full.get("Text").asString());
         }
         return texts;
+    }
+
+    /** 发信是异步的：等到这个地址至少收到 count 封邮件（最多等 10 秒），返回所有正文，最新的在前。 */
+    public List<String> awaitTextsSentTo(String address, int count) {
+        return await().atMost(Duration.ofSeconds(10)).until(() -> textsSentTo(address), texts -> texts.size() >= count);
+    }
+
+    /** 确认一段时间内这个地址收到的邮件数一直是 count（用来断言"没有再发信"）。 */
+    public void assertStaysAt(String address, int count) {
+        await().during(Duration.ofMillis(700))
+                .atMost(Duration.ofSeconds(2))
+                .until(() -> textsSentTo(address).size() == count);
     }
 
     public void deleteAll() {

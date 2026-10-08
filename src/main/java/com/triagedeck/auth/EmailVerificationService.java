@@ -7,6 +7,7 @@ import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
 import java.time.Instant;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,7 +52,11 @@ public class EmailVerificationService {
      *
      * <p>不管邮箱有没有注册、是否已经验证、是否发得太频繁，调用方看到的结果都一样（什么都不返回），
      * 否则别人可以用这个接口探测某个邮箱有没有注册过。只有"注册了、没验证、距上次发送超过冷却时间"才真的发信。
+     *
+     * <p>@Async：整个方法（查用户、建 token、发信）都在后台线程执行，接口立刻返回。
+     * 这样连响应时间都看不出差别：邮箱存在时要查库、写库、发信，不存在时什么都不做，如果同步执行，前者明显更慢。
      */
+    @Async
     @Transactional
     public void resend(String email) {
         Instant earliestNext = Instant.now().minus(settings.resendCooldown());

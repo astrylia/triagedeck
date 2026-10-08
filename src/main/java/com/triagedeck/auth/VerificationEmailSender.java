@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -14,7 +15,9 @@ import org.springframework.web.util.UriComponentsBuilder;
  *
  * <p>为什么用事件 + @TransactionalEventListener，而不是在注册方法里直接发：
  * 它默认在事务<b>提交之后</b>才执行。如果注册在最后一刻失败回滚了，邮件就不会发出去
- * （否则用户会收到一个指向不存在账号的链接）；发信慢也不会拖着数据库事务不放。
+ * （否则用户会收到一个指向不存在账号的链接）。
+ *
+ * <p>再加上 @Async，发信在后台线程里进行：连 SMTP 服务器可能要几百毫秒甚至超时，不会拖慢注册接口的响应。
  */
 @Component
 public class VerificationEmailSender {
@@ -29,6 +32,7 @@ public class VerificationEmailSender {
         this.settings = settings;
     }
 
+    @Async
     @TransactionalEventListener
     public void send(VerificationEmailRequested event) {
         String link = UriComponentsBuilder.fromUriString(settings.verifyEmailUrl())
