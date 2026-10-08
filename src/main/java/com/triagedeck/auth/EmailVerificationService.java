@@ -6,7 +6,6 @@ import com.triagedeck.common.SecureTokens;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
 import java.time.Instant;
-import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,23 +47,22 @@ public class EmailVerificationService {
     }
 
     /**
-     * 登录后的"重新发送验证邮件"。已验证过返回 409；距上次发送不到冷却时间返回 429。
+     * 重新发送验证邮件。没验证就登录不了，所以这个接口不需要登录，只凭邮箱。
+     *
+     * <p>不管邮箱有没有注册、是否已经验证、是否发得太频繁，调用方看到的结果都一样（什么都不返回），
+     * 否则别人可以用这个接口探测某个邮箱有没有注册过。只有"注册了、没验证、距上次发送超过冷却时间"才真的发信。
      */
     @Transactional
-    public void resend(UUID userId) {
-        AppUser user =
-                userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        if (user.isEmailVerified()) {
-            throw new BusinessException(ErrorCode.EMAIL_ALREADY_VERIFIED);
-        }
+    public void resend(String email) {
         Instant earliestNext = Instant.now().minus(settings.resendCooldown());
-        tokenRepository
-                .findFirstByUserIdOrderByCreatedAtDesc(userId)
-                .filter(last -> last.getCreatedAt().isAfter(earliestNext))
-                .ifPresent(last -> {
-                    throw new BusinessException(ErrorCode.VERIFICATION_EMAIL_TOO_FREQUENT);
-                });
-        sendVerificationEmail(user);
+        userRepository
+                .findByEmail(AppUser.normalizeEmail(email))
+                .filter(user -> !user.isEmailVerified())
+                .filter(user -> tokenRepository
+                        .findFirstByUserIdOrderByCreatedAtDesc(user.getId())
+                        .map(last -> !last.getCreatedAt().isAfter(earliestNext))
+                        .orElse(true))
+                .ifPresent(this::sendVerificationEmail);
     }
 
     /**

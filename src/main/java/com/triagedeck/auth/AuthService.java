@@ -60,7 +60,7 @@ public class AuthService {
 
     /**
      * 校验邮箱和密码，成功则签发 access token 和 refresh token。
-     * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）。
+     * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）；密码对但邮箱还没验证，抛 EMAIL_NOT_VERIFIED（403）。
      */
     @Transactional
     public TokenResponse login(LoginRequest request) {
@@ -69,6 +69,10 @@ public class AuthService {
                 .findByEmail(normalizedEmail)
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+        // 放在密码校验之后：不知道密码的人，拿不到"这个邮箱注册了但没验证"的信息
+        if (!user.isEmailVerified()) {
+            throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
+        }
         return TokenResponse.of(tokenService.issueAccessToken(user), refreshTokenService.issue(user.getId()));
     }
 

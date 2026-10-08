@@ -13,6 +13,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -98,6 +99,7 @@ class AuthControllerTest {
         // 64 个汉字 = 192 字节：bcrypt 的 72 字节上限会拒绝它，Argon2 没有这个限制
         String chinesePassword = "一二三四五六七八".repeat(8);
         register("alice@acme.com", chinesePassword, "Alice").andExpect(status().isCreated());
+        markEmailVerified("alice@acme.com");
         login("alice@acme.com", chinesePassword).andExpect(status().isOk());
 
         register("bob@acme.com", "x".repeat(129), "Bob")
@@ -109,7 +111,9 @@ class AuthControllerTest {
     void userWithLegacyBcryptHashCanStillLogIn() throws Exception {
         // 模拟换算法之前注册的用户：数据库里存的是 {bcrypt} 前缀的哈希
         String legacyHash = "{bcrypt}" + new BCryptPasswordEncoder().encode("old-password");
-        userRepository.save(new AppUser("legacy@acme.com", legacyHash, "Legacy"));
+        AppUser legacy = new AppUser("legacy@acme.com", legacyHash, "Legacy");
+        legacy.markEmailVerified(Instant.now());
+        userRepository.save(legacy);
 
         login("legacy@acme.com", "old-password").andExpect(status().isOk());
     }
@@ -122,6 +126,7 @@ class AuthControllerTest {
                         .getResponse()
                         .getContentAsString(),
                 "$.id");
+        markEmailVerified("alice@acme.com");
 
         String token = JsonPath.read(
                 login("Alice@acme.com", "correct-horse-battery")
@@ -158,6 +163,20 @@ class AuthControllerTest {
     }
 
     @Test
+    void unverifiedEmailCannotLogIn() throws Exception {
+        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
+
+        login("alice@acme.com", "correct-horse-battery")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"))
+                .andExpect(jsonPath("$.accessToken").doesNotExist());
+        // 密码错的时候不告诉对方"这个邮箱没验证"，和普通的登录失败一样
+        login("alice@acme.com", "wrong-password")
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
     void protectedEndpointRequiresValidToken() throws Exception {
         // 没带 token 和 token 无效，都返回和其他错误一样格式的 401（ProblemDetail + code）
         mockMvc.perform(get("/api/me"))
@@ -168,6 +187,13 @@ class AuthControllerTest {
         mockMvc.perform(get("/api/me").header("Authorization", "Bearer not-a-real-token"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+    }
+
+    /** 跳过收信点链接这一步，直接把邮箱标记为已验证，这样才能登录。 */
+    private void markEmailVerified(String email) {
+        AppUser user = userRepository.findByEmail(email).orElseThrow();
+        user.markEmailVerified(Instant.now());
+        userRepository.saveAndFlush(user);
     }
 
     private ResultActions register(String email, String password, String name) throws Exception {

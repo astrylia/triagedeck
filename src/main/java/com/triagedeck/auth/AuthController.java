@@ -62,11 +62,11 @@ public class AuthController {
         emailVerificationService.verify(request.token());
     }
 
-    /** 重新发送验证邮件。要登录，这样别人没法拿你的邮箱反复触发发信。 */
-    @PostMapping("/api/me/verification-email")
+    /** 重新发送验证邮件。不需要登录（没验证就登录不了）；无论邮箱是否注册，都返回 204。 */
+    @PostMapping("/api/auth/resend-verification-email")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void resendVerificationEmail(@AuthenticationPrincipal Jwt jwt) {
-        emailVerificationService.resend(UUID.fromString(jwt.getSubject()));
+    public void resendVerificationEmail(@Valid @RequestBody ResendVerificationEmailRequest request) {
+        emailVerificationService.resend(request.email());
     }
 
     /** 当前登录用户。用户 id 来自 token 的 sub。 */

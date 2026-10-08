@@ -3,7 +3,6 @@ package com.triagedeck.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -60,9 +59,6 @@ class EmailVerificationTest {
     EmailVerificationTokenRepository tokenRepository;
 
     @Autowired
-    TokenService tokenService;
-
-    @Autowired
     JdbcTemplate jdbcTemplate;
 
     // 用真实的发信组件，只在"发信失败"那个测试里让它抛异常
@@ -76,18 +72,20 @@ class EmailVerificationTest {
 
     @AfterEach
     void deleteCommittedRows() {
-        JdbcTestUtils.deleteFromTables(jdbcTemplate, "email_verification_token", "app_user");
+        JdbcTestUtils.deleteFromTables(jdbcTemplate, "email_verification_token", "refresh_token", "app_user");
     }
 
     @Test
-    void registrationSendsLinkThatVerifiesTheEmail() throws Exception {
-        UUID userId = register("alice@acme.com");
-        me(userId).andExpect(jsonPath("$.emailVerified").value(false));
+    void cannotLogInUntilTheLinkInTheEmailIsOpened() throws Exception {
+        register("alice@acme.com");
+        login("alice@acme.com")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
 
         String token = tokenFromLatestEmailTo("alice@acme.com");
         verify(token).andExpect(status().isNoContent());
 
-        me(userId).andExpect(jsonPath("$.emailVerified").value(true));
+        login("alice@acme.com").andExpect(status().isOk());
         // 同一个链接再点一次也没问题
         verify(token).andExpect(status().isNoContent());
     }
@@ -106,30 +104,38 @@ class EmailVerificationTest {
         verify(expired)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_VERIFICATION_TOKEN"));
-        me(userId).andExpect(jsonPath("$.emailVerified").value(false));
+        login("alice@acme.com").andExpect(status().isForbidden());
     }
 
     @Test
-    void resendIsRateLimitedAndRefusedOnceVerified() throws Exception {
+    void resendRespectsTheCooldownAndStopsOnceVerified() throws Exception {
         UUID userId = register("alice@acme.com");
 
-        // 注册时刚发过一封，马上重发被拒绝
-        resend(userId)
-                .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.code").value("VERIFICATION_EMAIL_TOO_FREQUENT"));
+        // 注册时刚发过一封：马上重发，接口照样返回 204，但不会真的再发
+        resend("alice@acme.com").andExpect(status().isNoContent());
+        assertThat(mailpit.textsSentTo("alice@acme.com")).hasSize(1);
 
         // 把上一封的发送时间往前挪，模拟过了冷却时间
         jdbcTemplate.update(
                 "UPDATE email_verification_token SET created_at = created_at - INTERVAL '2 minutes' WHERE user_id = ?",
                 userId);
-        resend(userId).andExpect(status().isNoContent());
+        resend("Alice@Acme.com").andExpect(status().isNoContent());
         assertThat(mailpit.textsSentTo("alice@acme.com")).hasSize(2);
 
-        // 新链接能用；验证之后再要求重发返回 409
+        // 新链接能用；验证之后再重发，不会再发信
         verify(tokenFromLatestEmailTo("alice@acme.com")).andExpect(status().isNoContent());
-        resend(userId)
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_VERIFIED"));
+        jdbcTemplate.update(
+                "UPDATE email_verification_token SET created_at = created_at - INTERVAL '2 minutes' WHERE user_id = ?",
+                userId);
+        resend("alice@acme.com").andExpect(status().isNoContent());
+        assertThat(mailpit.textsSentTo("alice@acme.com")).hasSize(2);
+    }
+
+    @Test
+    void resendForUnknownEmailLooksTheSameAndSendsNothing() throws Exception {
+        // 和已注册邮箱的响应一模一样，没法用这个接口探测谁注册过
+        resend("nobody@acme.com").andExpect(status().isNoContent());
+        assertThat(mailpit.textsSentTo("nobody@acme.com")).isEmpty();
     }
 
     @Test
@@ -171,15 +177,18 @@ class EmailVerificationTest {
                         """.formatted(token)));
     }
 
-    private ResultActions resend(UUID userId) throws Exception {
-        return mockMvc.perform(post("/api/me/verification-email").header("Authorization", bearer(userId)));
+    private ResultActions resend(String email) throws Exception {
+        return mockMvc.perform(post("/api/auth/resend-verification-email")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email": "%s"}
+                        """.formatted(email)));
     }
 
-    private ResultActions me(UUID userId) throws Exception {
-        return mockMvc.perform(get("/api/me").header("Authorization", bearer(userId)));
-    }
-
-    private String bearer(UUID userId) {
-        return "Bearer " + tokenService.issueAccessToken(userId).accessToken();
+    private ResultActions login(String email) throws Exception {
+        return mockMvc.perform(
+                post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"email": "%s", "password": "correct-horse-battery"}
+                        """.formatted(email)));
     }
 }
