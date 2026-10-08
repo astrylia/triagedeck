@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.token;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

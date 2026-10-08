@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.password;
 
 import java.io.IOException;
 import java.io.InputStream;

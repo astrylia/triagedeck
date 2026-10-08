@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.triagedeck.TestcontainersConfiguration;
-import com.triagedeck.auth.TokenService;
+import com.triagedeck.auth.token.TokenService;
 import com.triagedeck.membership.MembershipRepository;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;

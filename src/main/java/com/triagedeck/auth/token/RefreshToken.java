@@ -1,9 +1,6 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.token;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
@@ -11,9 +8,9 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.Generated;
 
 @Entity
-@Table(name = "email_verification_token")
+@Table(name = "refresh_token")
 @Getter
-public class EmailVerificationToken {
+public class RefreshToken {
     @Id
     @Generated
     private UUID id;
@@ -27,13 +24,15 @@ public class EmailVerificationToken {
     @Column(nullable = false)
     private Instant expiresAt;
 
+    private Instant revokedAt;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    protected EmailVerificationToken() {}
+    protected RefreshToken() {}
 
-    public EmailVerificationToken(UUID userId, String tokenHash, Instant expiresAt) {
+    public RefreshToken(UUID userId, String tokenHash, Instant expiresAt) {
         this.userId = userId;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;

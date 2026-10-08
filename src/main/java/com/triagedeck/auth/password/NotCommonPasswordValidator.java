@@ -1,10 +1,10 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.password;
 
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
 /** Spring 创建校验器时会注入 PasswordBlocklist，所以构造方法可以直接要这个 bean。 */
-public class NotCommonPasswordValidator implements ConstraintValidator<NotCommonPassword, RegisterRequest> {
+public class NotCommonPasswordValidator implements ConstraintValidator<NotCommonPassword, PasswordCandidate> {
 
     private final PasswordBlocklist blocklist;
 
@@ -13,7 +13,7 @@ public class NotCommonPasswordValidator implements ConstraintValidator<NotCommon
     }
 
     @Override
-    public boolean isValid(RegisterRequest request, ConstraintValidatorContext context) {
+    public boolean isValid(PasswordCandidate request, ConstraintValidatorContext context) {
         // 密码为空交给 @NotBlank 判断
         if (request.password() == null) {
             return true;

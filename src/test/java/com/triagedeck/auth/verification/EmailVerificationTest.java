@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.verification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;

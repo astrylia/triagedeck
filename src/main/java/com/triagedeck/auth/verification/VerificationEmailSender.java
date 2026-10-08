@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.verification;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

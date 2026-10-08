@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.password;
 
 import jakarta.validation.Constraint;
 import jakarta.validation.Payload;
@@ -9,7 +9,8 @@ import java.lang.annotation.Target;
 
 /**
  * 拒绝常见、容易被猜到的密码（规则见 PasswordBlocklist）。
- * 标在整个请求类上而不是 password 字段上，因为判断时还要用到同一个请求里的邮箱和名字。
+ * 标在整个请求类上而不是 password 字段上，因为判断时还要用到同一个请求里的邮箱和名字；
+ * 被标注的类要实现 PasswordCandidate。
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)

@@ -1,6 +1,8 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.security;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.triagedeck.auth.token.JwtProperties;
+import com.triagedeck.auth.verification.MailSettings;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import javax.crypto.SecretKey;

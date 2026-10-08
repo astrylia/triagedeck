@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.token;
 
 import com.triagedeck.user.AppUser;
 import java.time.Instant;

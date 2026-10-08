@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
-import com.triagedeck.auth.TokenService;
+import com.triagedeck.auth.token.TokenService;
 import com.triagedeck.common.SecureTokens;
 import com.triagedeck.membership.Membership;
 import com.triagedeck.membership.MembershipRepository;

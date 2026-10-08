@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.verification;
 
 import java.util.Optional;
 import java.util.UUID;

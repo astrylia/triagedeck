@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.security;
 
 import com.triagedeck.common.ErrorCode;
 import jakarta.servlet.ServletException;

@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.verification;
 
 /**
  * 事件：需要给这个邮箱发一封验证邮件。

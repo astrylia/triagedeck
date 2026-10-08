@@ -1,4 +1,4 @@
-package com.triagedeck.auth;
+package com.triagedeck.auth.verification;
 
 import jakarta.validation.constraints.NotBlank;
 
