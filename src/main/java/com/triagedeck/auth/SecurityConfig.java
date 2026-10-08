@@ -35,7 +35,14 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // /error 是 Spring Boot 内置的错误页，出错时请求会被转发到这里生成 500 响应；
                 // 不放行的话，未登录接口出错时会被拦成一个空的 401，真正的错误就被掩盖了
-                .authorizeHttpRequests(auth -> auth.requestMatchers("/api/auth/**", "/actuator/health", "/error")
+                // /v3/api-docs 和 /swagger-ui 是接口文档，不需要登录就能看
+                .authorizeHttpRequests(auth -> auth.requestMatchers(
+                                "/api/auth/**",
+                                "/actuator/health",
+                                "/error",
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html")
                         .permitAll()
                         .anyRequest()
                         .authenticated())
