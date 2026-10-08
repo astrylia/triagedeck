@@ -2,12 +2,10 @@ package com.triagedeck.auth.security;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.triagedeck.auth.token.JwtProperties;
-import com.triagedeck.auth.verification.MailSettings;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -25,7 +23,6 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, MailSettings.class})
 public class SecurityConfig {
 
     @Bean
