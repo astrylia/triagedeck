@@ -27,7 +27,8 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http, ProblemDetailAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
         http
                 // 无状态 REST API：不用 Session，也就不需要 CSRF 防护
                 .csrf(csrf -> csrf.disable())
@@ -39,7 +40,10 @@ public class SecurityConfig {
                         .anyRequest()
                         .authenticated())
                 // 其余请求都要带 Authorization: Bearer <token>，由 Spring Security 校验签名和过期时间
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+                .oauth2ResourceServer(oauth2 ->
+                        oauth2.jwt(Customizer.withDefaults()).authenticationEntryPoint(authenticationEntryPoint))
+                // 没带 token 的请求走这里；带了但无效的走上面 oauth2ResourceServer 里的那个。两处都返回同样格式的 401
+                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(authenticationEntryPoint));
         return http.build();
     }
 

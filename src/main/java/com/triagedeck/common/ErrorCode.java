@@ -10,6 +10,8 @@ public enum ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Request validation failed"),
     // 邮箱不存在和密码错误都用这一个，不告诉调用方是哪一种，避免被用来探测哪些邮箱注册过
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Invalid email or password"),
+    // 没带 access token，或者 token 无效、已过期。前端收到它可以先用 refresh token 换一个新的再重试
+    UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Missing, invalid or expired access token"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered"),
     // 组织不存在、或者当前用户不是它的成员，都用这一个：不让外人确认某个组织 id 是否存在
