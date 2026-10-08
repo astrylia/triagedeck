@@ -2,6 +2,7 @@ package com.triagedeck.organization;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -88,6 +89,54 @@ class OrganizationControllerTest {
                         {"name": "Acme", "slug": "acme"}
                         """))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void listReturnsOnlyOrganizationsTheCallerBelongsTo() throws Exception {
+        String alice = tokenFor(saveUser("alice@acme.com"));
+        String bob = tokenFor(saveUser("bob@other.com"));
+        createOrganization(alice, "Acme", "acme").andExpect(status().isCreated());
+        createOrganization(alice, "Acme Labs", "acme-labs").andExpect(status().isCreated());
+        createOrganization(bob, "Other", "other").andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/orgs").header("Authorization", "Bearer " + alice))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].slug").value(containsInAnyOrder("acme", "acme-labs")));
+    }
+
+    @Test
+    void memberCanViewOrganization() throws Exception {
+        String alice = tokenFor(saveUser("alice@acme.com"));
+        String orgId = idOf(createOrganization(alice, "Acme", "acme"));
+
+        mockMvc.perform(get("/api/orgs/" + orgId).header("Authorization", "Bearer " + alice))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slug").value("acme"));
+    }
+
+    @Test
+    void nonMemberGetsNotFoundEvenWithRealOrganizationId() throws Exception {
+        // 跨租户访问：Bob 拿到了 Alice 组织真实的 id，也不能看
+        String orgId = idOf(createOrganization(tokenFor(saveUser("alice@acme.com")), "Acme", "acme"));
+        String bob = tokenFor(saveUser("bob@other.com"));
+
+        mockMvc.perform(get("/api/orgs/" + orgId).header("Authorization", "Bearer " + bob))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ORG_NOT_FOUND"));
+    }
+
+    @Test
+    void unknownOrganizationIdGetsTheSameNotFound() throws Exception {
+        // 和上一个测试的响应一样，外人分不出"组织不存在"和"组织存在但我不是成员"
+        String alice = tokenFor(saveUser("alice@acme.com"));
+
+        mockMvc.perform(get("/api/orgs/" + UUID.randomUUID()).header("Authorization", "Bearer " + alice))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ORG_NOT_FOUND"));
+    }
+
+    private String idOf(ResultActions createResult) throws Exception {
+        return JsonPath.read(createResult.andReturn().getResponse().getContentAsString(), "$.id");
     }
 
     private AppUser saveUser(String email) {

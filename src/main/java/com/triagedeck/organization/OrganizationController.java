@@ -1,10 +1,13 @@
 package com.triagedeck.organization;
 
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -26,5 +29,21 @@ public class OrganizationController {
             @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateOrganizationRequest request) {
         UUID currentUserId = UUID.fromString(jwt.getSubject());
         return OrganizationResponse.from(organizationService.create(currentUserId, request));
+    }
+
+    /** 当前用户加入的所有组织。 */
+    @GetMapping("/api/orgs")
+    public List<OrganizationResponse> listMine(@AuthenticationPrincipal Jwt jwt) {
+        UUID currentUserId = UUID.fromString(jwt.getSubject());
+        return organizationService.listForUser(currentUserId).stream()
+                .map(OrganizationResponse::from)
+                .toList();
+    }
+
+    /** 查看一个组织，只有成员能看。 */
+    @GetMapping("/api/orgs/{orgId}")
+    public OrganizationResponse get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID orgId) {
+        UUID currentUserId = UUID.fromString(jwt.getSubject());
+        return OrganizationResponse.from(organizationService.get(currentUserId, orgId));
     }
 }

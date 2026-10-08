@@ -12,6 +12,8 @@ public enum ErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Invalid email or password"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered"),
+    // 组织不存在、或者当前用户不是它的成员，都用这一个：不让外人确认某个组织 id 是否存在
+    ORG_NOT_FOUND(HttpStatus.NOT_FOUND, "Organization not found"),
     ORG_SLUG_ALREADY_USED(HttpStatus.CONFLICT, "Organization slug already taken"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 
