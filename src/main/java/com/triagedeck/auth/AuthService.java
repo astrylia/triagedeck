@@ -15,11 +15,17 @@ public class AuthService {
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
+    private final RefreshTokenService refreshTokenService;
 
-    public AuthService(AppUserRepository userRepository, PasswordEncoder passwordEncoder, TokenService tokenService) {
+    public AuthService(
+            AppUserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            TokenService tokenService,
+            RefreshTokenService refreshTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     /**
@@ -48,16 +54,32 @@ public class AuthService {
     }
 
     /**
-     * 校验邮箱和密码，成功则签发 token。
+     * 校验邮箱和密码，成功则签发 access token 和 refresh token。
      * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）。
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public TokenResponse login(LoginRequest request) {
         String normalizedEmail = AppUser.normalizeEmail(request.email());
         AppUser user = userRepository
                 .findByEmail(normalizedEmail)
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
-        return tokenService.issueAccessToken(user);
+        return TokenResponse.of(tokenService.issueAccessToken(user), refreshTokenService.issue(user.getId()));
+    }
+
+    /**
+     * 用 refresh token 换一对新的 token，旧的 refresh token 随之作废。
+     *
+     * <p>这里故意不加 @Transactional：rotate 自己开事务。如果外面再包一层事务，
+     * rotate 抛出的异常经过这一层时会把整个事务回滚，"发现 token 被盗、吊销所有 token"就白做了。
+     */
+    public TokenResponse refresh(RefreshTokenRequest request) {
+        RefreshTokenService.Rotation rotation = refreshTokenService.rotate(request.refreshToken());
+        return TokenResponse.of(tokenService.issueAccessToken(rotation.userId()), rotation.refreshToken());
+    }
+
+    /** 退出登录。access token 是无状态的，只能等它在 15 分钟内自己过期；refresh token 立刻作废。 */
+    public void logout(RefreshTokenRequest request) {
+        refreshTokenService.revoke(request.refreshToken());
     }
 }

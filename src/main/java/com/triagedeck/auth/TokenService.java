@@ -2,6 +2,7 @@ package com.triagedeck.auth;
 
 import com.triagedeck.user.AppUser;
 import java.time.Instant;
+import java.util.UUID;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -21,17 +22,21 @@ public class TokenService {
         this.properties = properties;
     }
 
-    public TokenResponse issueAccessToken(AppUser user) {
+    public AccessToken issueAccessToken(AppUser user) {
+        return issueAccessToken(user.getId());
+    }
+
+    public AccessToken issueAccessToken(UUID userId) {
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("triagedeck")
-                .subject(user.getId().toString())
+                .subject(userId.toString())
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.accessTokenTtl()))
                 .build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         String token =
                 jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-        return new TokenResponse(token, "Bearer", properties.accessTokenTtl().toSeconds());
+        return new AccessToken(token, properties.accessTokenTtl().toSeconds());
     }
 }

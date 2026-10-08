@@ -24,7 +24,10 @@ class JwtPropertiesTest {
 
     @Test
     void startupSucceedsWithValidSecret() {
-        runner.withPropertyValues("triagedeck.jwt.secret=" + "x".repeat(32), "triagedeck.jwt.access-token-ttl=15m")
+        runner.withPropertyValues(
+                        "triagedeck.jwt.secret=" + "x".repeat(32),
+                        "triagedeck.jwt.access-token-ttl=15m",
+                        "triagedeck.jwt.refresh-token-ttl=14d")
                 .run(context -> assertThat(context)
                         .hasNotFailed()
                         .getBean(JwtProperties.class)

@@ -23,3 +23,4 @@ triagedeck:
     # 签名密钥：生产环境必须通过环境变量 JWT_SECRET 提供；下面的默认值只用于本地开发和测试
     secret: ${JWT_SECRET:dev-only-secret-change-me-at-least-32-bytes-long}
     access-token-ttl: 15m
+    refresh-token-ttl: 14d

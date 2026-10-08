@@ -12,6 +12,8 @@ public enum ErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Invalid email or password"),
     // 没带 access token，或者 token 无效、已过期。前端收到它可以先用 refresh token 换一个新的再重试
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Missing, invalid or expired access token"),
+    // 不存在、过期、已用过、已退出登录都用这一个：前端的处理都一样，让用户重新登录
+    INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired; please log in again"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered"),
     // 组织不存在、或者当前用户不是它的成员，都用这一个：不让外人确认某个组织 id 是否存在

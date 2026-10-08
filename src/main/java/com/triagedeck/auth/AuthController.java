@@ -37,6 +37,19 @@ public class AuthController {
         return authService.login(request);
     }
 
+    /** access token 过期后，用 refresh token 换一对新的。不需要带 access token。 */
+    @PostMapping("/api/auth/refresh")
+    public TokenResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return authService.refresh(request);
+    }
+
+    /** 退出登录：让这个 refresh token 作废。 */
+    @PostMapping("/api/auth/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request);
+    }
+
     /** 当前登录用户。用户 id 来自 token 的 sub。 */
     @GetMapping("/api/me")
     public UserResponse me(@AuthenticationPrincipal Jwt jwt) {

@@ -2,6 +2,7 @@ package com.triagedeck.invitation;
 
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
+import com.triagedeck.common.SecureTokens;
 import com.triagedeck.membership.Membership;
 import com.triagedeck.membership.MembershipId;
 import com.triagedeck.membership.MembershipRepository;
@@ -45,8 +46,8 @@ public class InvitationService {
     @Transactional
     public CreatedInvitation create(UUID inviterId, UUID orgId, CreateInvitationRequest request) {
         membershipService.requireRole(inviterId, orgId, Role.OWNER, Role.ADMIN);
-        String token = InvitationTokens.generate();
-        String tokenHash = InvitationTokens.hash(token);
+        String token = SecureTokens.generate();
+        String tokenHash = SecureTokens.hash(token);
         Instant expiresAt = Instant.now().plus(VALID_FOR);
         Invitation invitation = new Invitation(orgId, request.email(), request.role(), tokenHash, inviterId, expiresAt);
         invitationRepository.save(invitation);
@@ -62,7 +63,7 @@ public class InvitationService {
     @Transactional
     public Membership accept(UUID userId, String token) {
         Invitation invitation = invitationRepository
-                .findByTokenHash(InvitationTokens.hash(token))
+                .findByTokenHash(SecureTokens.hash(token))
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVITATION_NOT_FOUND));
         AppUser user =
                 appUserRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));

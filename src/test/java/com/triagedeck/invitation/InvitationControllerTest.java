@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
 import com.triagedeck.auth.TokenService;
+import com.triagedeck.common.SecureTokens;
 import com.triagedeck.membership.Membership;
 import com.triagedeck.membership.MembershipRepository;
 import com.triagedeck.membership.Role;
@@ -72,7 +73,7 @@ class InvitationControllerTest {
         assertThat(saved).hasSize(1);
         Invitation invitation = saved.getFirst();
         // 数据库里存的是哈希，不是原始 token
-        assertThat(invitation.getTokenHash()).isNotEqualTo(token).isEqualTo(InvitationTokens.hash(token));
+        assertThat(invitation.getTokenHash()).isNotEqualTo(token).isEqualTo(SecureTokens.hash(token));
         assertThat(invitation.getOrgId()).isEqualTo(orgId);
         assertThat(invitation.getInvitedBy()).isEqualTo(alice.getId());
         assertThat(invitation.getAcceptedAt()).isNull();

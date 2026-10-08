@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.triagedeck.TestcontainersConfiguration;
 import com.triagedeck.auth.TokenService;
+import com.triagedeck.common.SecureTokens;
 import com.triagedeck.membership.Membership;
 import com.triagedeck.membership.MembershipId;
 import com.triagedeck.membership.MembershipRepository;
@@ -100,7 +101,7 @@ class InvitationAcceptTest {
                 .findById(new MembershipId(bob.getId(), orgId))
                 .orElseThrow();
         assertThat(membership.getRole()).isEqualTo(Role.AGENT);
-        assertThat(invitationRepository.findByTokenHash(InvitationTokens.hash(token)))
+        assertThat(invitationRepository.findByTokenHash(SecureTokens.hash(token)))
                 .get()
                 .extracting(Invitation::getAcceptedAt)
                 .isNotNull();
@@ -148,7 +149,7 @@ class InvitationAcceptTest {
 
     @Test
     void unknownTokenGetsNotFound() throws Exception {
-        accept(bob, InvitationTokens.generate())
+        accept(bob, SecureTokens.generate())
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("INVITATION_NOT_FOUND"));
     }
@@ -184,12 +185,12 @@ class InvitationAcceptTest {
 
     /** 直接往数据库里放一个发给 Bob 的邀请，返回原始 token。validFor 是负数就是已经过期的邀请。 */
     private String inviteBob(Role role, Duration validFor) {
-        String token = InvitationTokens.generate();
+        String token = SecureTokens.generate();
         invitationRepository.saveAndFlush(new Invitation(
                 orgId,
                 bob.getEmail(),
                 role,
-                InvitationTokens.hash(token),
+                SecureTokens.hash(token),
                 alice.getId(),
                 Instant.now().plus(validFor)));
         return token;
