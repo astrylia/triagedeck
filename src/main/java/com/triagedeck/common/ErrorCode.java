@@ -12,6 +12,7 @@ public enum ErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Invalid email or password"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered"),
+    ORG_SLUG_ALREADY_USED(HttpStatus.CONFLICT, "Organization slug already taken"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 
     private final HttpStatus status;
