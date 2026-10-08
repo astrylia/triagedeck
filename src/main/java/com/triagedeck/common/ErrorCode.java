@@ -17,6 +17,13 @@ public enum ErrorCode {
     ORG_SLUG_ALREADY_USED(HttpStatus.CONFLICT, "Organization slug already taken"),
     // 是组织成员，但角色不够做这件事（比如 AGENT 想邀请别人）
     INSUFFICIENT_ROLE(HttpStatus.FORBIDDEN, "Your role in this organization does not allow this action"),
+    ALREADY_MEMBER(HttpStatus.CONFLICT, "You are already a member of this organization"),
+    INVITATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Invitation not found"),
+    // 邀请绑定了邮箱：登录的账号不是被邀请的那个邮箱
+    INVITATION_EMAIL_MISMATCH(HttpStatus.FORBIDDEN, "This invitation was sent to a different email address"),
+    INVITATION_ALREADY_USED(HttpStatus.CONFLICT, "Invitation has already been used"),
+    // 410 Gone：这个东西以前有效，现在永久失效了
+    INVITATION_EXPIRED(HttpStatus.GONE, "Invitation has expired"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 
     private final HttpStatus status;

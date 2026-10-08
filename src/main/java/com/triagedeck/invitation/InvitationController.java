@@ -30,4 +30,12 @@ public class InvitationController {
         UUID currentUserId = UUID.fromString(jwt.getSubject());
         return InvitationResponse.from(invitationService.create(currentUserId, orgId, request));
     }
+
+    /** 凭邀请链接里的 token 加入组织。要先登录，并且登录的邮箱必须是被邀请的邮箱。 */
+    @PostMapping("/api/invitations/accept")
+    public AcceptInvitationResponse accept(
+            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody AcceptInvitationRequest request) {
+        UUID currentUserId = UUID.fromString(jwt.getSubject());
+        return AcceptInvitationResponse.from(invitationService.accept(currentUserId, request.token()));
+    }
 }

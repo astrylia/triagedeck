@@ -52,4 +52,17 @@ public class Invitation {
         this.invitedBy = invitedBy;
         this.expiresAt = expiresAt;
     }
+
+    /** 邀请只能用一次，接受过就不能再用。 */
+    public boolean isAccepted() {
+        return acceptedAt != null;
+    }
+
+    public boolean isExpiredAt(Instant now) {
+        return !now.isBefore(expiresAt);
+    }
+
+    public void markAccepted(Instant now) {
+        this.acceptedAt = now;
+    }
 }
