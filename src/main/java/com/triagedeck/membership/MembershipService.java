@@ -2,6 +2,7 @@ package com.triagedeck.membership;
 
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,5 +28,18 @@ public class MembershipService {
         return membershipRepository
                 .findById(new MembershipId(userId, orgId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORG_NOT_FOUND));
+    }
+
+    /**
+     * 当前用户必须是这个组织的成员，并且角色是 allowedRoles 之一。
+     * 不是成员：404 ORG_NOT_FOUND（和 requireMembership 一样）；是成员但角色不在里面：403 INSUFFICIENT_ROLE。
+     */
+    @Transactional(readOnly = true)
+    public Membership requireRole(UUID userId, UUID orgId, Role... allowedRoles) {
+        Membership membership = requireMembership(userId, orgId);
+        if (!List.of(allowedRoles).contains(membership.getRole())) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_ROLE);
+        }
+        return membership;
     }
 }

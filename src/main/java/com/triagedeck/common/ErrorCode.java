@@ -15,6 +15,8 @@ public enum ErrorCode {
     // 组织不存在、或者当前用户不是它的成员，都用这一个：不让外人确认某个组织 id 是否存在
     ORG_NOT_FOUND(HttpStatus.NOT_FOUND, "Organization not found"),
     ORG_SLUG_ALREADY_USED(HttpStatus.CONFLICT, "Organization slug already taken"),
+    // 是组织成员，但角色不够做这件事（比如 AGENT 想邀请别人）
+    INSUFFICIENT_ROLE(HttpStatus.FORBIDDEN, "Your role in this organization does not allow this action"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 
     private final HttpStatus status;
