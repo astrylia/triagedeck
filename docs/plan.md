@@ -33,7 +33,7 @@
 | 持久层 | Spring Data JPA（Hibernate） | 最常见；能讲 N+1、懒加载、乐观锁 |
 | 迁移 | Flyway | 数据库结构有版本，可重复部署 |
 | 认证 / 权限 | Spring Security + JWT（access + refresh） | 自己配一遍过滤器链和方法级权限，面试必问 |
-| 校验 | Jakarta Bean Validation + 全局异常处理（`@RestControllerAdvice`，RFC 7807 错误格式） | 统一、规范的错误响应 |
+| 校验 | Jakarta Bean Validation + 全局异常处理（`@RestControllerAdvice`，RFC 9457 错误格式） | 统一、规范的错误响应 |
 | API 文档 | springdoc-openapi（Swagger UI） | 前端 AI 工具直接按它生成客户端 |
 | 异步 / 定时 | Spring `@Scheduled` 起步，之后升级为 Redis + 延迟队列或 RabbitMQ | SLA 违约检测、通知发送 |
 | 缓存 | Redis | 热点数据、限流 |
@@ -65,13 +65,16 @@ Tag / TicketTag
 
 每个阶段结束都是一个可以写进简历、可以演示的里程碑。
 
-### 阶段 1：地基（项目骨架 + 认证 + 多租户）
-- 建 GitHub 仓库，Spring Boot 4.1 + Flyway + Docker Compose（Postgres、Redis）
+### 阶段 1：地基（项目骨架 + 认证 + 多租户）✅ 2026-10-08 完成
+- GitHub 仓库，Spring Boot 4.1 + Flyway + Docker Compose（Postgres；Redis 等到阶段 4 做限流时再加）
 - Spotless 统一代码格式，GitHub Actions 跑构建和测试
-- 注册登录（JWT）；创建组织；邀请成员；基于角色的方法级权限（`@PreAuthorize`）
-- 所有查询都带 `orgId`，用统一的租户上下文（请求级 `TenantContext`）保证隔离，并写集成测试证明跨租户访问会被拒绝
-- Swagger 文档自动生成
-- **里程碑**：API 能注册、建组织、切换组织，有测试，CI 是绿的（前端此阶段可以不做）
+- 注册登录：JWT access token（15 分钟）+ refresh token（14 天，每次使用都轮换，重复使用视为被盗、吊销该用户全部 refresh token）；密码 Argon2id、15–128 位、NIST 常见密码黑名单
+- 创建组织；邀请成员（一次性链接，绑定邮箱，7 天有效，数据库只存 token 的 SHA-256）；接受邀请
+- 租户隔离：组织 id 在 URL 里，Service 层显式调用 `requireMembership` / `requireRole`（不是成员 404，角色不够 403），见 `docs/adr/0002`。最初计划的 `@PreAuthorize` + `TenantContext` 没有采用
+- `TenantIsolationTest`：另一个组织的 OWNER 调用每个组织下的接口都得到 404；新增 `{orgId}` 接口没登记进测试会让 CI 失败
+- 统一错误格式：RFC 9457 ProblemDetail + `code`，包括 Spring Security 的 401
+- Swagger 文档自动生成（`/swagger-ui.html`）
+- **里程碑**：API 能注册、登录续期、建组织、邀请成员、切换组织（`GET /api/orgs` + URL 里的 orgId），58 个测试，CI 是绿的
 
 ### 阶段 2：工单核心
 - 工单 CRUD、状态机、优先级、标签
