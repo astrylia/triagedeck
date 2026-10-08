@@ -28,6 +28,9 @@ public class AppUser {
     @Column(nullable = false)
     private String name;
 
+    // NULL 表示邮箱还没验证过
+    private Instant emailVerifiedAt;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -38,6 +41,17 @@ public class AppUser {
         this.email = normalizeEmail(email);
         this.passwordHash = passwordHash;
         this.name = name;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
+    }
+
+    /** 标记邮箱已验证。已经验证过就保留第一次验证的时间。 */
+    public void markEmailVerified(Instant now) {
+        if (emailVerifiedAt == null) {
+            emailVerifiedAt = now;
+        }
     }
 
     /** 注册和登录都要用同一套规则处理邮箱，否则 "Alice@X.com" 注册后用 "alice@x.com" 登录会找不到人。 */

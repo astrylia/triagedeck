@@ -16,5 +16,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+  # 本地开发用的"假邮箱服务器"：程序发出的邮件都被它截下来，不会真的发出去
+  # 收到的邮件在浏览器里看：http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.31
+    container_name: triage-mailpit
+    ports:
+      - "1025:1025"   # SMTP，程序往这里发信
+      - "8025:8025"   # 网页界面
 volumes:
   postgres_data:

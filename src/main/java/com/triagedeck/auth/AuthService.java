@@ -16,20 +16,23 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final RefreshTokenService refreshTokenService;
+    private final EmailVerificationService emailVerificationService;
 
     public AuthService(
             AppUserRepository userRepository,
             PasswordEncoder passwordEncoder,
             TokenService tokenService,
-            RefreshTokenService refreshTokenService) {
+            RefreshTokenService refreshTokenService,
+            EmailVerificationService emailVerificationService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.refreshTokenService = refreshTokenService;
+        this.emailVerificationService = emailVerificationService;
     }
 
     /**
-     * 注册新用户，返回保存后的 AppUser。
+     * 注册新用户，返回保存后的 AppUser，并给注册邮箱发验证邮件（事务提交后才发）。
      * 邮箱已被使用时抛 EMAIL_ALREADY_USED（409）。
      */
     @Transactional
@@ -43,14 +46,16 @@ public class AuthService {
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
         }
         String passwordHash = passwordEncoder.encode(password);
-        AppUser user = new AppUser(normalizedEmail, passwordHash, name);
+        AppUser saved;
         try {
             // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
-            return userRepository.saveAndFlush(user);
+            saved = userRepository.saveAndFlush(new AppUser(normalizedEmail, passwordHash, name));
         } catch (DataIntegrityViolationException e) {
             // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
         }
+        emailVerificationService.sendVerificationEmail(saved);
+        return saved;
     }
 
     /**

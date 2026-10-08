@@ -148,6 +148,31 @@ class InvitationAcceptTest {
     }
 
     @Test
+    void unverifiedEmailCannotAcceptInvitation() throws Exception {
+        // 有人抢先用 carol@acme.com 注册了账号，但收不到发给 Carol 的验证邮件，验证不了，也就冒领不了发给 Carol 的邀请
+        AppUser squatter = userRepository.saveAndFlush(new AppUser("carol@acme.com", "{noop}unused", "Squatter"));
+        String token = SecureTokens.generate();
+        invitationRepository.saveAndFlush(new Invitation(
+                orgId,
+                "carol@acme.com",
+                Role.ADMIN,
+                SecureTokens.hash(token),
+                alice.getId(),
+                Instant.now().plus(Duration.ofDays(7))));
+
+        accept(squatter, token)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+        assertThat(membershipRepository.existsById(new MembershipId(squatter.getId(), orgId)))
+                .isFalse();
+        // 邀请没有被消耗掉
+        assertThat(invitationRepository.findByTokenHash(SecureTokens.hash(token)))
+                .get()
+                .extracting(Invitation::getAcceptedAt)
+                .isNull();
+    }
+
+    @Test
     void unknownTokenGetsNotFound() throws Exception {
         accept(bob, SecureTokens.generate())
                 .andExpect(status().isNotFound())
@@ -196,8 +221,11 @@ class InvitationAcceptTest {
         return token;
     }
 
+    /** 已经验证过邮箱的用户：接受邀请要求邮箱已验证。 */
     private AppUser saveUser(String email) {
-        return userRepository.saveAndFlush(new AppUser(email, "{noop}unused", "Test User"));
+        AppUser user = new AppUser(email, "{noop}unused", "Test User");
+        user.markEmailVerified(Instant.now());
+        return userRepository.saveAndFlush(user);
     }
 
     private String tokenFor(AppUser user) {

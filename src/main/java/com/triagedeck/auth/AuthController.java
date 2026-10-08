@@ -19,10 +19,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final EmailVerificationService emailVerificationService;
     private final AppUserRepository userRepository;
 
-    public AuthController(AuthService authService, AppUserRepository userRepository) {
+    public AuthController(
+            AuthService authService,
+            EmailVerificationService emailVerificationService,
+            AppUserRepository userRepository) {
         this.authService = authService;
+        this.emailVerificationService = emailVerificationService;
         this.userRepository = userRepository;
     }
 
@@ -48,6 +53,20 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(@Valid @RequestBody RefreshTokenRequest request) {
         authService.logout(request);
+    }
+
+    /** 用户点开验证邮件里的链接后，前端把链接里的 token 发到这里。不需要登录。 */
+    @PostMapping("/api/auth/verify-email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+        emailVerificationService.verify(request.token());
+    }
+
+    /** 重新发送验证邮件。要登录，这样别人没法拿你的邮箱反复触发发信。 */
+    @PostMapping("/api/me/verification-email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resendVerificationEmail(@AuthenticationPrincipal Jwt jwt) {
+        emailVerificationService.resend(UUID.fromString(jwt.getSubject()));
     }
 
     /** 当前登录用户。用户 id 来自 token 的 sub。 */

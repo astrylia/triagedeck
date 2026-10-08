@@ -11,6 +11,11 @@ spring:
     open-in-view: false    # 不在视图层保持数据库会话，避免隐蔽的懒加载查询
   flyway:
     enabled: true
+  mail:
+    # 本地开发发到 docker compose 里的 Mailpit（不需要账号密码）
+    # 部署时用环境变量指向真实的发信服务：MAIL_HOST、MAIL_PORT，账号密码用 SPRING_MAIL_USERNAME / SPRING_MAIL_PASSWORD
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
 
 management:
   endpoints:
@@ -24,3 +29,9 @@ triagedeck:
     secret: ${JWT_SECRET:dev-only-secret-change-me-at-least-32-bytes-long}
     access-token-ttl: 15m
     refresh-token-ttl: 14d
+  mail:
+    from: ${MAIL_FROM:TriageDeck <no-reply@triagedeck.local>}
+    # 验证邮件里的链接指向前端页面，前端拿到 token 后调用 POST /api/auth/verify-email
+    verify-email-url: ${VERIFY_EMAIL_URL:http://localhost:5173/verify-email}
+    verification-token-ttl: 24h
+    resend-cooldown: 60s
