@@ -3,12 +3,9 @@ package com.triagedeck.auth;
 import com.triagedeck.auth.token.RefreshTokenRequest;
 import com.triagedeck.auth.verification.RegistrationCodeService;
 import com.triagedeck.auth.verification.SendRegistrationCodeRequest;
-import com.triagedeck.common.BusinessException;
-import com.triagedeck.common.ErrorCode;
 import com.triagedeck.ratelimit.RateLimitProperties;
 import com.triagedeck.ratelimit.RateLimiter;
 import com.triagedeck.user.AppUser;
-import com.triagedeck.user.AppUserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.UUID;
@@ -26,19 +23,16 @@ public class AuthController {
 
     private final AuthService authService;
     private final RegistrationCodeService registrationCodeService;
-    private final AppUserRepository userRepository;
     private final RateLimiter rateLimiter;
     private final RateLimitProperties limits;
 
     public AuthController(
             AuthService authService,
             RegistrationCodeService registrationCodeService,
-            AppUserRepository userRepository,
             RateLimiter rateLimiter,
             RateLimitProperties limits) {
         this.authService = authService;
         this.registrationCodeService = registrationCodeService;
-        this.userRepository = userRepository;
         this.rateLimiter = rateLimiter;
         this.limits = limits;
     }
@@ -87,9 +81,7 @@ public class AuthController {
     /** 当前登录用户。用户 id 来自 token 的 sub。 */
     @GetMapping("/api/me")
     public UserResponse me(@AuthenticationPrincipal Jwt jwt) {
-        AppUser user = userRepository
-                .findById(UUID.fromString(jwt.getSubject()))
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        return UserResponse.from(user);
+        UUID currentUserId = UUID.fromString(jwt.getSubject());
+        return UserResponse.from(authService.currentUser(currentUserId));
     }
 }

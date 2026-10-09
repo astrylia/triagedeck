@@ -9,6 +9,7 @@ import com.triagedeck.common.ErrorCode;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -89,6 +90,11 @@ public class AuthService {
     public TokenResponse refresh(RefreshTokenRequest request) {
         RefreshTokenService.Rotation rotation = refreshTokenService.rotate(request.refreshToken());
         return TokenResponse.of(tokenService.issueAccessToken(rotation.userId()), rotation.refreshToken());
+    }
+
+    /** 查当前登录的用户。token 有效但用户已经不存在时，抛 USER_NOT_FOUND（404）。 */
+    public AppUser currentUser(UUID userId) {
+        return userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 
     /** 退出登录。access token 是无状态的，只能等它在 15 分钟内自己过期；refresh token 立刻作废。 */
