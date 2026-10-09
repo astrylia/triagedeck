@@ -15,6 +15,10 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # Redis 只用来限流，不响应时要尽快失败、放行请求（见 RateLimiter）。
+      # 不配的话 Lettuce 默认命令超时 60 秒，Redis 卡住时每个登录请求都要等满 60 秒。
+      timeout: 500ms
+      connect-timeout: 1s
   mail:
     # 本地开发发到 docker compose 里的 Mailpit（不需要账号密码）
     # 部署时用环境变量指向真实的发信服务：MAIL_HOST、MAIL_PORT，账号密码用 SPRING_MAIL_USERNAME / SPRING_MAIL_PASSWORD
