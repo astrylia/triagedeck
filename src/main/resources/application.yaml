@@ -49,18 +49,20 @@ triagedeck:
     failure-window: 24h
   rate-limit:
     enabled: true
-    # 同一个 IP 每分钟最多尝试登录 20 次
+    # 这些数字没有标准可依（NIST、OWASP 都只给原则，不给"每分钟几次"），是按下面的思路估的：
+    # 按 IP 的限制只用来挡脚本批量刷，放得很宽。B2B 客户一个办公室的员工通常共用一个出口 IP，
+    # 新客户一次让几十个员工注册、登录，不能被挡住。防猜测靠按账号/按邮箱的限制（OWASP：失败计数要跟账号走，不跟 IP 走）。
     login-per-ip:
-      limit: 20
+      limit: 100
       window: 1m
     # 同一个邮箱每分钟最多尝试登录 10 次（不管从哪个 IP 来），防止分散 IP 猜同一个账号的密码
     login-per-email:
       limit: 10
       window: 1m
     register-per-ip:
-      limit: 10
+      limit: 100
       window: 1h
-    # 同一个邮箱另有 60 秒的发码冷却（见上面的 registration-code.resend-cooldown）
+    # 同一个邮箱另有 60 秒的发码冷却和每天输错次数上限（见上面的 registration-code）
     registration-code-per-ip:
-      limit: 5
+      limit: 50
       window: 10m
