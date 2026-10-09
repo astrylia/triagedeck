@@ -55,7 +55,7 @@ public class VerificationEmailSender {
         try {
             mailSender.send(message);
         } catch (MailException e) {
-            // 发信失败不影响注册结果：账号已经建好了，用户可以在登录后点"重新发送"
+            // 发信失败不影响注册结果：账号已经建好了，用户可以通过公开接口 /api/auth/resend-verification-email 重新发送
             log.warn("Failed to send verification email to {}", event.email(), e);
         }
     }
