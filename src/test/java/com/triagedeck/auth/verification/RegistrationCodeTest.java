@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -133,6 +134,28 @@ class RegistrationCodeTest {
         // 试错 5 次后，正确的验证码也不能用了，只能重新获取
         register("alice@acme.com", code).andExpect(status().isBadRequest());
         assertThat(userRepository.findByEmail("alice@acme.com")).isEmpty();
+    }
+
+    @Test
+    void wrongTriesAddUpAcrossNewCodesUntilTheEmailIsLocked() throws Exception {
+        // 换新验证码不会清零输错次数：两个验证码各错 5 次，一共 10 次，到了每天的上限
+        for (int round = 0; round < 2; round++) {
+            String code = registrationCodes.issueCode("alice@acme.com");
+            for (int i = 0; i < 5; i++) {
+                register("alice@acme.com", wrong(code)).andExpect(status().isBadRequest());
+            }
+        }
+
+        // 再要一个新验证码，输对了也不行，要等统计窗口过去
+        String fresh = registrationCodes.issueCode("alice@acme.com");
+        register("alice@acme.com", fresh)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(header().exists("Retry-After"));
+        assertThat(userRepository.findByEmail("alice@acme.com")).isEmpty();
+
+        // 只影响这一个邮箱
+        register("bob@acme.com", registrationCodes.issueCode("bob@acme.com")).andExpect(status().isCreated());
     }
 
     @Test

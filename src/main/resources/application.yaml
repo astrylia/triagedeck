@@ -44,6 +44,9 @@ triagedeck:
     ttl: 10m
     resend-cooldown: 60s
     max-attempts: 5
+    # 同一个邮箱 24 小时内最多输错 10 次，换新验证码也累计（NIST SP 800-63B 第 4 版 3.1.3.2 节：发新验证码不能清零失败次数）
+    max-failures-per-email: 10
+    failure-window: 24h
   rate-limit:
     enabled: true
     # 同一个 IP 每分钟最多尝试登录 20 次
