@@ -5,7 +5,6 @@ import com.triagedeck.auth.verification.RegistrationCodeService;
 import com.triagedeck.auth.verification.SendRegistrationCodeRequest;
 import com.triagedeck.ratelimit.RateLimitProperties;
 import com.triagedeck.ratelimit.RateLimiter;
-import com.triagedeck.user.AppUser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.UUID;
@@ -59,9 +58,8 @@ public class AuthController {
 
     @PostMapping("/api/auth/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
-        // 两层：按 IP 挡住一台机器到处试；按邮箱挡住换着 IP 猜同一个账号的密码
+        // 按 IP 只挡脚本批量刷；猜同一个账号的密码由 AuthService 里按邮箱的连续失败等待挡住
         rateLimiter.check("login:ip:" + http.getRemoteAddr(), limits.loginPerIp());
-        rateLimiter.check("login:email:" + AppUser.normalizeEmail(request.email()), limits.loginPerEmail());
         return authService.login(request);
     }
 

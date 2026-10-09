@@ -30,7 +30,9 @@ import org.springframework.transaction.annotation.Transactional;
         properties = {
             "triagedeck.rate-limit.enabled=true",
             "triagedeck.rate-limit.login-per-ip.limit=5",
-            "triagedeck.rate-limit.login-per-email.limit=3",
+            "triagedeck.rate-limit.login-backoff.free-attempts=3",
+            "triagedeck.rate-limit.login-backoff.base-delay=300ms",
+            "triagedeck.rate-limit.login-backoff.max-delay=1s",
             "triagedeck.rate-limit.register-per-ip.limit=2",
             "triagedeck.rate-limit.registration-code-per-ip.limit=2"
         })
@@ -51,19 +53,21 @@ class RateLimitTest {
 
     @BeforeEach
     void clearCounters() {
-        var keys = redis.keys("rate-limit:*");
-        if (!keys.isEmpty()) {
-            redis.delete(keys);
+        for (String pattern : new String[] {"rate-limit:*", "login-failures:*"}) {
+            var keys = redis.keys(pattern);
+            if (!keys.isEmpty()) {
+                redis.delete(keys);
+            }
         }
     }
 
     @Test
-    void loginIsLimitedPerEmailEvenFromDifferentAddresses() throws Exception {
+    void repeatedFailuresOnOneEmailMustWaitEvenFromDifferentAddresses() throws Exception {
         login("alice@acme.com", "10.0.0.1").andExpect(status().isUnauthorized());
         login("alice@acme.com", "10.0.0.2").andExpect(status().isUnauthorized());
         login("ALICE@acme.com", "10.0.0.3").andExpect(status().isUnauthorized());
 
-        // 第 4 次：换了 IP、邮箱换了大小写，仍然算同一个邮箱
+        // 连续错了 3 次，第 4 次要等：换了 IP、邮箱换了大小写，仍然算同一个邮箱
         login("alice@acme.com", "10.0.0.4")
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
@@ -72,6 +76,37 @@ class RateLimitTest {
 
         // 别的邮箱不受影响
         login("bob@acme.com", "10.0.0.4").andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void waitDoublesAfterEachFurtherFailure() throws Exception {
+        // 每次换一个 IP，避开按 IP 的限制（这个测试里是每分钟 5 次），只看按邮箱的等待
+        login("alice@acme.com", "10.0.5.1").andExpect(status().isUnauthorized());
+        login("alice@acme.com", "10.0.5.2").andExpect(status().isUnauthorized());
+        login("alice@acme.com", "10.0.5.3").andExpect(status().isUnauthorized());
+        login("alice@acme.com", "10.0.5.4").andExpect(status().isTooManyRequests());
+
+        // 等过 300 毫秒可以再试一次；刚才被拒的那次不算失败
+        Thread.sleep(350);
+        login("alice@acme.com", "10.0.5.5").andExpect(status().isUnauthorized());
+
+        // 又错了一次，下一次要等 600 毫秒：过 350 毫秒还不行
+        Thread.sleep(350);
+        login("alice@acme.com", "10.0.5.6").andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void successfulLoginClearsTheFailures() throws Exception {
+        register("alice@acme.com", "10.0.0.6").andExpect(status().isCreated());
+        login("alice@acme.com", "10.0.0.6").andExpect(status().isUnauthorized());
+        login("alice@acme.com", "10.0.0.6").andExpect(status().isUnauthorized());
+        loginWith("alice@acme.com", "correct-horse-battery").andExpect(status().isOk());
+
+        // 成功之后从零算起：又能连续错 3 次，第 4 次才要等
+        for (int i = 0; i < 3; i++) {
+            login("alice@acme.com", "10.0.0.6").andExpect(status().isUnauthorized());
+        }
+        login("alice@acme.com", "10.0.0.6").andExpect(status().isTooManyRequests());
     }
 
     @Test
@@ -123,6 +158,14 @@ class RateLimitTest {
                 .content("""
                         {"email": "%s", "password": "wrong-password"}
                         """.formatted(email)));
+    }
+
+    private ResultActions loginWith(String email, String password) throws Exception {
+        return mockMvc.perform(
+                post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"email": "%s", "password": "%s"}
+                        """.formatted(
+                                email, password)));
     }
 
     private ResultActions register(String email, String address) throws Exception {

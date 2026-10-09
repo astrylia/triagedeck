@@ -6,6 +6,7 @@ import com.triagedeck.auth.token.TokenService;
 import com.triagedeck.auth.verification.RegistrationCodeService;
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
+import com.triagedeck.ratelimit.LoginBackoff;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
 import java.util.Optional;
@@ -22,6 +23,7 @@ public class AuthService {
     private final TokenService tokenService;
     private final RefreshTokenService refreshTokenService;
     private final RegistrationCodeService registrationCodeService;
+    private final LoginBackoff loginBackoff;
     // 邮箱不存在时拿来做一次"假的"密码比对，见 login
     private final String dummyPasswordHash;
 
@@ -30,12 +32,14 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             TokenService tokenService,
             RefreshTokenService refreshTokenService,
-            RegistrationCodeService registrationCodeService) {
+            RegistrationCodeService registrationCodeService,
+            LoginBackoff loginBackoff) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.refreshTokenService = refreshTokenService;
         this.registrationCodeService = registrationCodeService;
+        this.loginBackoff = loginBackoff;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-constant-time-login");
     }
 
@@ -65,12 +69,14 @@ public class AuthService {
 
     /**
      * 校验邮箱和密码，成功则签发 access token 和 refresh token。
-     * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）。
+     * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）；这个邮箱连续输错太多次、还在等待期，抛 429。
      *
      * <p>不加 @Transactional：查用户、签发 refresh token 各自开事务，中间算 Argon2 时不占着数据库连接。
      */
     public TokenResponse login(LoginRequest request) {
         String normalizedEmail = AppUser.normalizeEmail(request.email());
+        // 在查用户之前：存在和不存在的邮箱一样计数、一样要等，429 不暴露邮箱是否注册过
+        loginBackoff.beforeAttempt(normalizedEmail);
         Optional<AppUser> found = userRepository.findByEmail(normalizedEmail);
         // 邮箱不存在时也做一次密码比对：Argon2 故意算得很慢，如果只有邮箱存在时才比对，
         // "邮箱不存在"的请求会明显更快返回，别人就能靠计时判断哪些邮箱注册过
@@ -78,6 +84,7 @@ public class AuthService {
         boolean passwordMatches = passwordEncoder.matches(request.password(), hash);
         AppUser user = found.filter(u -> passwordMatches)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+        loginBackoff.succeeded(normalizedEmail);
         return TokenResponse.of(tokenService.issueAccessToken(user), refreshTokenService.issue(user.getId()));
     }
 

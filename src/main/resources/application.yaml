@@ -55,10 +55,13 @@ triagedeck:
     login-per-ip:
       limit: 100
       window: 1m
-    # 同一个邮箱每分钟最多尝试登录 10 次（不管从哪个 IP 来），防止分散 IP 猜同一个账号的密码
-    login-per-email:
-      limit: 10
-      window: 1m
+    # 同一个邮箱连续输错密码（不管从哪个 IP 来）：前 5 次不用等，之后每次要等 30 秒、1 分钟、2 分钟……翻倍，
+    # 最多 15 分钟；登录成功或 24 小时没再试就清零。只延迟、不停用账号，停用要等"忘记密码"做好才能恢复
+    login-backoff:
+      free-attempts: 5
+      base-delay: 30s
+      max-delay: 15m
+      reset-after: 24h
     register-per-ip:
       limit: 100
       window: 1h
