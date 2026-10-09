@@ -12,7 +12,7 @@ import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class AuthService {
@@ -22,6 +22,7 @@ public class AuthService {
     private final TokenService tokenService;
     private final RefreshTokenService refreshTokenService;
     private final EmailVerificationService emailVerificationService;
+    private final TransactionTemplate transactionTemplate;
     // 邮箱不存在时拿来做一次"假的"密码比对，见 login
     private final String dummyPasswordHash;
 
@@ -30,47 +31,51 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             TokenService tokenService,
             RefreshTokenService refreshTokenService,
-            EmailVerificationService emailVerificationService) {
+            EmailVerificationService emailVerificationService,
+            TransactionTemplate transactionTemplate) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.refreshTokenService = refreshTokenService;
         this.emailVerificationService = emailVerificationService;
+        this.transactionTemplate = transactionTemplate;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-constant-time-login");
     }
 
     /**
      * 注册新用户，返回保存后的 AppUser，并给注册邮箱发验证邮件（事务提交后才发）。
      * 邮箱已被使用时抛 EMAIL_ALREADY_USED（409）。
+     *
+     * <p>方法本身不加 @Transactional：Argon2 算一次要几十毫秒，在事务外面先算好哈希，
+     * 只有写库这一小段放进事务，算哈希时不占着数据库连接。
      */
-    @Transactional
     public AppUser register(RegisterRequest request) {
-        String email = request.email();
-        String password = request.password();
-        String name = request.name();
-
-        String normalizedEmail = AppUser.normalizeEmail(email);
+        String normalizedEmail = AppUser.normalizeEmail(request.email());
         if (userRepository.existsByEmail(normalizedEmail)) {
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
         }
-        String passwordHash = passwordEncoder.encode(password);
-        AppUser saved;
-        try {
-            // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
-            saved = userRepository.saveAndFlush(new AppUser(normalizedEmail, passwordHash, name));
-        } catch (DataIntegrityViolationException e) {
-            // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
-            throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
-        }
-        emailVerificationService.sendVerificationEmail(saved);
-        return saved;
+        String passwordHash = passwordEncoder.encode(request.password());
+        return transactionTemplate.execute(status -> {
+            AppUser saved;
+            try {
+                // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
+                saved = userRepository.saveAndFlush(new AppUser(normalizedEmail, passwordHash, request.name()));
+            } catch (DataIntegrityViolationException e) {
+                // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
+                throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
+            }
+            // 和建用户在同一个事务里：验证 token 存不进去，用户也不会建出来
+            emailVerificationService.sendVerificationEmail(saved);
+            return saved;
+        });
     }
 
     /**
      * 校验邮箱和密码，成功则签发 access token 和 refresh token。
      * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）；密码对但邮箱还没验证，抛 EMAIL_NOT_VERIFIED（403）。
+     *
+     * <p>不加 @Transactional：查用户、签发 refresh token 各自开事务，中间算 Argon2 时不占着数据库连接。
      */
-    @Transactional
     public TokenResponse login(LoginRequest request) {
         String normalizedEmail = AppUser.normalizeEmail(request.email());
         Optional<AppUser> found = userRepository.findByEmail(normalizedEmail);
