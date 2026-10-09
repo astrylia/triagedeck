@@ -16,7 +16,9 @@ import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -144,6 +146,10 @@ class AuthControllerTest {
                         .getResponse()
                         .getContentAsString(),
                 "$.accessToken");
+
+        // JWT 第一段是 header：签名算法必须是 HS256，和解码器只接受的算法一致
+        String jwtHeader = new String(Base64.getUrlDecoder().decode(token.split("\\.")[0]), StandardCharsets.UTF_8);
+        assertThat((String) JsonPath.read(jwtHeader, "$.alg")).isEqualTo("HS256");
 
         mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())

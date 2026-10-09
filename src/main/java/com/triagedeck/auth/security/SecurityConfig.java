@@ -1,6 +1,5 @@
 package com.triagedeck.auth.security;
 
-import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.triagedeck.auth.token.JwtProperties;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -70,9 +69,13 @@ public class SecurityConfig {
         return new SecretKeySpec(properties.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
     }
 
+    // 编码器和解码器都写死 HS256，签发和校验用的算法一定一致。
+    // withSecretKey 会把 HS256 设成默认 header，TokenService 签发时不用再自己带 header。
     @Bean
     JwtEncoder jwtEncoder(SecretKey jwtSigningKey) {
-        return new NimbusJwtEncoder(new ImmutableSecret<>(jwtSigningKey));
+        return NimbusJwtEncoder.withSecretKey(jwtSigningKey)
+                .algorithm(MacAlgorithm.HS256)
+                .build();
     }
 
     @Bean
