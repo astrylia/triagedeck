@@ -39,9 +39,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RateLimitExceededException.class)
     ResponseEntity<ProblemDetail> handleRateLimited(RateLimitExceededException e) {
         long seconds = Math.max(1, (e.getRetryAfter().toMillis() + 999) / 1000);
-        return ResponseEntity.status(e.getErrorCode().status())
+        // ResponseEntity.of 直接用 ProblemDetail 里的状态码，状态码只从 ErrorCode 一处来
+        return ResponseEntity.of(handleBusiness(e))
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
-                .body(handleBusiness(e));
+                .build();
     }
 
     /** @Valid 校验失败：补上 code，并列出每个出错的字段，方便前端标红对应输入框。 */
