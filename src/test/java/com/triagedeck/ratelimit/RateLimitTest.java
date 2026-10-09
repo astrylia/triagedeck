@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.triagedeck.TestcontainersConfiguration;
+import com.triagedeck.auth.verification.RegistrationCodeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
             "triagedeck.rate-limit.login-per-ip.limit=5",
             "triagedeck.rate-limit.login-per-email.limit=3",
             "triagedeck.rate-limit.register-per-ip.limit=2",
-            "triagedeck.rate-limit.resend-verification-per-ip.limit=2"
+            "triagedeck.rate-limit.registration-code-per-ip.limit=2"
         })
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
@@ -44,6 +45,9 @@ class RateLimitTest {
     // 用真实的 Redis，只在"Redis 挂了"那个测试里让它抛异常
     @MockitoSpyBean
     StringRedisTemplate redis;
+
+    @Autowired
+    RegistrationCodeService registrationCodes;
 
     @BeforeEach
     void clearCounters() {
@@ -91,11 +95,11 @@ class RateLimitTest {
     }
 
     @Test
-    void resendIsLimitedPerAddress() throws Exception {
-        resend("a@acme.com", "10.0.2.1").andExpect(status().isNoContent());
-        resend("b@acme.com", "10.0.2.1").andExpect(status().isNoContent());
+    void registrationCodeIsLimitedPerAddress() throws Exception {
+        sendCode("a@acme.com", "10.0.2.1").andExpect(status().isNoContent());
+        sendCode("b@acme.com", "10.0.2.1").andExpect(status().isNoContent());
 
-        resend("c@acme.com", "10.0.2.1").andExpect(status().isTooManyRequests());
+        sendCode("c@acme.com", "10.0.2.1").andExpect(status().isTooManyRequests());
     }
 
     @Test
@@ -129,12 +133,12 @@ class RateLimitTest {
                 })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"email": "%s", "password": "correct-horse-battery", "name": "Test"}
-                        """.formatted(email)));
+                        {"email": "%s", "code": "%s", "password": "correct-horse-battery", "name": "Test"}
+                        """.formatted(email, registrationCodes.issueCode(email))));
     }
 
-    private ResultActions resend(String email, String address) throws Exception {
-        return mockMvc.perform(post("/api/auth/resend-verification-email")
+    private ResultActions sendCode(String email, String address) throws Exception {
+        return mockMvc.perform(post("/api/auth/registration-code")
                 .with(request -> {
                     request.setRemoteAddr(address);
                     return request;

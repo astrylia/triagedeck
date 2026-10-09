@@ -14,10 +14,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
+import com.triagedeck.auth.verification.RegistrationCodeService;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +43,9 @@ class AuthControllerTest {
 
     @Autowired
     AppUserRepository userRepository;
+
+    @Autowired
+    RegistrationCodeService registrationCodes;
 
     @MockitoSpyBean
     PasswordEncoder passwordEncoder;
@@ -109,7 +112,6 @@ class AuthControllerTest {
         // 64 个汉字 = 192 字节：bcrypt 的 72 字节上限会拒绝它，Argon2 没有这个限制
         String chinesePassword = "一二三四五六七八".repeat(8);
         register("alice@acme.com", chinesePassword, "Alice").andExpect(status().isCreated());
-        markEmailVerified("alice@acme.com");
         login("alice@acme.com", chinesePassword).andExpect(status().isOk());
 
         register("bob@acme.com", "x".repeat(129), "Bob")
@@ -121,9 +123,7 @@ class AuthControllerTest {
     void userWithLegacyBcryptHashCanStillLogIn() throws Exception {
         // 模拟换算法之前注册的用户：数据库里存的是 {bcrypt} 前缀的哈希
         String legacyHash = "{bcrypt}" + new BCryptPasswordEncoder().encode("old-password");
-        AppUser legacy = new AppUser("legacy@acme.com", legacyHash, "Legacy");
-        legacy.markEmailVerified(Instant.now());
-        userRepository.save(legacy);
+        userRepository.save(new AppUser("legacy@acme.com", legacyHash, "Legacy"));
 
         login("legacy@acme.com", "old-password").andExpect(status().isOk());
     }
@@ -136,7 +136,6 @@ class AuthControllerTest {
                         .getResponse()
                         .getContentAsString(),
                 "$.id");
-        markEmailVerified("alice@acme.com");
 
         String token = JsonPath.read(
                 login("Alice@acme.com", "correct-horse-battery")
@@ -185,17 +184,43 @@ class AuthControllerTest {
     }
 
     @Test
-    void unverifiedEmailCannotLogIn() throws Exception {
+    void registerRequiresTheCodeSentToThatEmail() throws Exception {
+        String aliceCode = registrationCodes.issueCode("alice@acme.com");
+        String wrongCode = aliceCode.equals("000000") ? "000001" : "000000";
+
+        register("alice@acme.com", wrongCode, "correct-horse-battery", "Alice")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_VERIFICATION_CODE"));
+        // 别人邮箱的验证码不能拿来注册自己的邮箱
+        register("mallory@acme.com", aliceCode, "correct-horse-battery", "Mallory")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_VERIFICATION_CODE"));
+        // 不是 6 位数字，在参数校验那一步就被挡住
+        register("alice@acme.com", "12345", "correct-horse-battery", "Alice")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("code"));
+
+        assertThat(userRepository.findByEmail("alice@acme.com")).isEmpty();
+        assertThat(userRepository.findByEmail("mallory@acme.com")).isEmpty();
+    }
+
+    @Test
+    void registeredUserCanLogInRightAway() throws Exception {
+        // 注册时已经用验证码证明过邮箱，不需要再验证
         register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
 
-        login("alice@acme.com", "correct-horse-battery")
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"))
-                .andExpect(jsonPath("$.accessToken").doesNotExist());
-        // 密码错的时候不告诉对方"这个邮箱没验证"，和普通的登录失败一样
-        login("alice@acme.com", "wrong-password")
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+        login("alice@acme.com", "correct-horse-battery").andExpect(status().isOk());
+    }
+
+    @Test
+    void registeredEmailCannotBeProbedWithoutACode() throws Exception {
+        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
+
+        // 没有有效验证码时，已注册和没注册的邮箱得到同样的 400，看不出 alice 注册过
+        register("alice@acme.com", "123456", "another-long-password", "Alice 2")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_VERIFICATION_CODE"));
     }
 
     @Test
@@ -211,19 +236,17 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
-    /** 跳过收信点链接这一步，直接把邮箱标记为已验证，这样才能登录。 */
-    private void markEmailVerified(String email) {
-        AppUser user = userRepository.findByEmail(email).orElseThrow();
-        user.markEmailVerified(Instant.now());
-        userRepository.saveAndFlush(user);
+    /** 跳过收信这一步：直接生成一个验证码，再带着它注册。 */
+    private ResultActions register(String email, String password, String name) throws Exception {
+        return register(email, registrationCodes.issueCode(email), password, name);
     }
 
-    private ResultActions register(String email, String password, String name) throws Exception {
+    private ResultActions register(String email, String code, String password, String name) throws Exception {
         return mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"email": "%s", "password": "%s", "name": "%s"}
-                        """.formatted(email, password, name)));
+                        {"email": "%s", "code": "%s", "password": "%s", "name": "%s"}
+                        """.formatted(email, code, password, name)));
     }
 
     private ResultActions login(String email, String password) throws Exception {

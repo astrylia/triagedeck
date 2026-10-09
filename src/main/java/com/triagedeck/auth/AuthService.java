@@ -3,7 +3,7 @@ package com.triagedeck.auth;
 import com.triagedeck.auth.token.RefreshTokenRequest;
 import com.triagedeck.auth.token.RefreshTokenService;
 import com.triagedeck.auth.token.TokenService;
-import com.triagedeck.auth.verification.EmailVerificationService;
+import com.triagedeck.auth.verification.RegistrationCodeService;
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
 import com.triagedeck.user.AppUser;
@@ -12,7 +12,6 @@ import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class AuthService {
@@ -21,8 +20,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final RefreshTokenService refreshTokenService;
-    private final EmailVerificationService emailVerificationService;
-    private final TransactionTemplate transactionTemplate;
+    private final RegistrationCodeService registrationCodeService;
     // 邮箱不存在时拿来做一次"假的"密码比对，见 login
     private final String dummyPasswordHash;
 
@@ -31,48 +29,42 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             TokenService tokenService,
             RefreshTokenService refreshTokenService,
-            EmailVerificationService emailVerificationService,
-            TransactionTemplate transactionTemplate) {
+            RegistrationCodeService registrationCodeService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.refreshTokenService = refreshTokenService;
-        this.emailVerificationService = emailVerificationService;
-        this.transactionTemplate = transactionTemplate;
+        this.registrationCodeService = registrationCodeService;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-constant-time-login");
     }
 
     /**
-     * 注册新用户，返回保存后的 AppUser，并给注册邮箱发验证邮件（事务提交后才发）。
-     * 邮箱已被使用时抛 EMAIL_ALREADY_USED（409）。
+     * 凭邮箱收到的验证码注册新用户，返回保存后的 AppUser。建出来的账号邮箱已经验证过，可以直接登录。
+     * 验证码不对抛 INVALID_VERIFICATION_CODE（400），邮箱已被使用抛 EMAIL_ALREADY_USED（409）。
      *
      * <p>方法本身不加 @Transactional：Argon2 算一次要几十毫秒，在事务外面先算好哈希，
-     * 只有写库这一小段放进事务，算哈希时不占着数据库连接。
+     * 写库只有一条 INSERT，saveAndFlush 自己会开事务，算哈希时不占着数据库连接。
      */
     public AppUser register(RegisterRequest request) {
         String normalizedEmail = AppUser.normalizeEmail(request.email());
+        // 先核对验证码，再查邮箱是否已注册：没有验证码的人，没法拿这个接口探测邮箱有没有注册过
+        registrationCodeService.verifyAndConsume(normalizedEmail, request.code());
         if (userRepository.existsByEmail(normalizedEmail)) {
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
         }
         String passwordHash = passwordEncoder.encode(request.password());
-        return transactionTemplate.execute(status -> {
-            AppUser saved;
-            try {
-                // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
-                saved = userRepository.saveAndFlush(new AppUser(normalizedEmail, passwordHash, request.name()));
-            } catch (DataIntegrityViolationException e) {
-                // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
-                throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
-            }
-            // 和建用户在同一个事务里：验证 token 存不进去，用户也不会建出来
-            emailVerificationService.sendVerificationEmail(saved);
-            return saved;
-        });
+        try {
+            // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
+            return userRepository.saveAndFlush(new AppUser(normalizedEmail, passwordHash, request.name()));
+        } catch (DataIntegrityViolationException e) {
+            // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
+            throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
+        }
     }
 
     /**
      * 校验邮箱和密码，成功则签发 access token 和 refresh token。
-     * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）；密码对但邮箱还没验证，抛 EMAIL_NOT_VERIFIED（403）。
+     * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）。
      *
      * <p>不加 @Transactional：查用户、签发 refresh token 各自开事务，中间算 Argon2 时不占着数据库连接。
      */
@@ -85,10 +77,6 @@ public class AuthService {
         boolean passwordMatches = passwordEncoder.matches(request.password(), hash);
         AppUser user = found.filter(u -> passwordMatches)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
-        // 放在密码校验之后：不知道密码的人，拿不到"这个邮箱注册了但没验证"的信息
-        if (!user.isEmailVerified()) {
-            throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
-        }
         return TokenResponse.of(tokenService.issueAccessToken(user), refreshTokenService.issue(user.getId()));
     }
 

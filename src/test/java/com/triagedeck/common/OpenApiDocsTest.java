@@ -27,6 +27,7 @@ class OpenApiDocsTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.info.title").value("TriageDeck API"))
                 .andExpect(jsonPath("$.paths['/api/auth/login']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/registration-code']").exists())
                 .andExpect(jsonPath("$.paths['/api/orgs/{orgId}/invitations']").exists())
                 .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme")
                         .value("bearer"));

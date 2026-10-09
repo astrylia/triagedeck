@@ -57,9 +57,9 @@ public class InvitationService {
     /**
      * 当前用户凭 token 接受邀请，成为组织成员，返回新建的成员关系。
      *
-     * <p>检查顺序：token 存在 → 当前用户的邮箱就是被邀请的邮箱 → 这个邮箱验证过 → 没用过 → 没过期 → 还不是成员。
-     * 必须验证过邮箱：否则任何人都能先用别人的邮箱注册，再冒领发给那个邮箱的邀请。
-     * 没验证的账号本来就登录不了，这里再查一次是兜底，不依赖"登录入口一定挡住了"。
+     * <p>检查顺序：token 存在 → 当前用户的邮箱就是被邀请的邮箱 → 没用过 → 没过期 → 还不是成员。
+     * 只核对邮箱就够了：注册时必须先收到发往这个邮箱的验证码，账号的邮箱一定属于本人，
+     * 别人没法先用你的邮箱注册、再冒领发给你的邀请。
      * 先核对邮箱，再告诉对方"用过了 / 过期了"：别人捡到链接，也打听不到这个邀请的状态。
      */
     @Transactional
@@ -71,9 +71,6 @@ public class InvitationService {
                 appUserRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         if (!user.getEmail().equals(invitation.getEmail())) {
             throw new BusinessException(ErrorCode.INVITATION_EMAIL_MISMATCH);
-        }
-        if (!user.isEmailVerified()) {
-            throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
         Instant now = Instant.now();
         if (invitation.isAccepted()) {

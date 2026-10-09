@@ -39,10 +39,11 @@ triagedeck:
     refresh-token-ttl: 14d
   mail:
     from: ${MAIL_FROM:TriageDeck <no-reply@triagedeck.local>}
-    # 验证邮件里的链接指向前端页面，前端拿到 token 后调用 POST /api/auth/verify-email
-    verify-email-url: ${VERIFY_EMAIL_URL:http://localhost:5173/verify-email}
-    verification-token-ttl: 24h
+  registration-code:
+    # 注册验证码 10 分钟内有效，最多试 5 次；同一个邮箱 60 秒内只发一次
+    ttl: 10m
     resend-cooldown: 60s
+    max-attempts: 5
   rate-limit:
     enabled: true
     # 同一个 IP 每分钟最多尝试登录 20 次
@@ -56,7 +57,7 @@ triagedeck:
     register-per-ip:
       limit: 10
       window: 1h
-    # 同一个邮箱另有 60 秒的重发冷却（见上面的 resend-cooldown）
-    resend-verification-per-ip:
+    # 同一个邮箱另有 60 秒的发码冷却（见上面的 registration-code.resend-cooldown）
+    registration-code-per-ip:
       limit: 5
       window: 10m

@@ -62,9 +62,7 @@ class RefreshTokenTest {
 
     @BeforeEach
     void setUp() {
-        AppUser user = new AppUser("alice@acme.com", passwordEncoder.encode(PASSWORD), "Alice");
-        user.markEmailVerified(Instant.now());
-        alice = userRepository.saveAndFlush(user);
+        alice = userRepository.saveAndFlush(new AppUser("alice@acme.com", passwordEncoder.encode(PASSWORD), "Alice"));
     }
 
     @AfterEach

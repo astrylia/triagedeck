@@ -1,9 +1,8 @@
 package com.triagedeck.auth;
 
 import com.triagedeck.auth.token.RefreshTokenRequest;
-import com.triagedeck.auth.verification.EmailVerificationService;
-import com.triagedeck.auth.verification.ResendVerificationEmailRequest;
-import com.triagedeck.auth.verification.VerifyEmailRequest;
+import com.triagedeck.auth.verification.RegistrationCodeService;
+import com.triagedeck.auth.verification.SendRegistrationCodeRequest;
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
 import com.triagedeck.ratelimit.RateLimitProperties;
@@ -26,24 +25,37 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
-    private final EmailVerificationService emailVerificationService;
+    private final RegistrationCodeService registrationCodeService;
     private final AppUserRepository userRepository;
     private final RateLimiter rateLimiter;
     private final RateLimitProperties limits;
 
     public AuthController(
             AuthService authService,
-            EmailVerificationService emailVerificationService,
+            RegistrationCodeService registrationCodeService,
             AppUserRepository userRepository,
             RateLimiter rateLimiter,
             RateLimitProperties limits) {
         this.authService = authService;
-        this.emailVerificationService = emailVerificationService;
+        this.registrationCodeService = registrationCodeService;
         this.userRepository = userRepository;
         this.rateLimiter = rateLimiter;
         this.limits = limits;
     }
 
+    /**
+     * 注册第一步：给邮箱发 6 位验证码。不管邮箱是否已注册、是否还在 60 秒冷却里，都返回 204，
+     * 没法用它探测谁注册过（已注册的邮箱收到的是"你已经有账号了"的提醒，不是验证码）。
+     */
+    @PostMapping("/api/auth/registration-code")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void sendRegistrationCode(@Valid @RequestBody SendRegistrationCodeRequest request, HttpServletRequest http) {
+        // 同一个邮箱另有 60 秒冷却；这里再按 IP 限制，防止有人换着邮箱批量触发发信
+        rateLimiter.check("registration-code:ip:" + http.getRemoteAddr(), limits.registrationCodePerIp());
+        registrationCodeService.sendCode(request.email());
+    }
+
+    /** 注册第二步：邮箱 + 验证码 + 密码，验证码对了才创建账号，创建后可以直接登录。 */
     @PostMapping("/api/auth/register")
     @ResponseStatus(HttpStatus.CREATED)
     public UserResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
@@ -70,23 +82,6 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(@Valid @RequestBody RefreshTokenRequest request) {
         authService.logout(request);
-    }
-
-    /** 用户点开验证邮件里的链接后，前端把链接里的 token 发到这里。不需要登录。 */
-    @PostMapping("/api/auth/verify-email")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
-        emailVerificationService.verify(request.token());
-    }
-
-    /** 重新发送验证邮件。不需要登录（没验证就登录不了）；无论邮箱是否注册，都返回 204。 */
-    @PostMapping("/api/auth/resend-verification-email")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void resendVerificationEmail(
-            @Valid @RequestBody ResendVerificationEmailRequest request, HttpServletRequest http) {
-        // 同一个邮箱已有 60 秒冷却；这里再按 IP 限制，防止有人换着邮箱批量触发发信
-        rateLimiter.check("resend-verification:ip:" + http.getRemoteAddr(), limits.resendVerificationPerIp());
-        emailVerificationService.resend(request.email());
     }
 
     /** 当前登录用户。用户 id 来自 token 的 sub。 */

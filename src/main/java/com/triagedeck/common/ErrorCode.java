@@ -16,10 +16,8 @@ public enum ErrorCode {
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired; please log in again"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered"),
-    // 验证链接不存在或已过期：前端的处理都一样，让用户重新发送验证邮件
-    INVALID_VERIFICATION_TOKEN(HttpStatus.BAD_REQUEST, "Verification link is invalid or expired; request a new one"),
-    // 密码正确，但邮箱还没验证：前端引导用户去收信，或者重新发送验证邮件
-    EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Please verify your email address first"),
+    // 注册验证码错误、过期、已用过或试错太多次：前端的处理都一样，让用户检查输入或重新获取
+    INVALID_VERIFICATION_CODE(HttpStatus.BAD_REQUEST, "Verification code is invalid or expired; request a new one"),
     // 组织不存在、或者当前用户不是它的成员，都用这一个：不让外人确认某个组织 id 是否存在
     ORG_NOT_FOUND(HttpStatus.NOT_FOUND, "Organization not found"),
     ORG_SLUG_ALREADY_USED(HttpStatus.CONFLICT, "Organization slug already taken"),
