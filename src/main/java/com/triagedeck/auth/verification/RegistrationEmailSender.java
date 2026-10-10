@@ -8,9 +8,9 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
 
 /**
- * 注册相关的两种邮件：给新邮箱发验证码；给已经注册过的邮箱发"你已经有账号了"的提醒。
+ * 注册相关的两种邮件：给新邮箱发注册链接；给已经注册过的邮箱发"你已经有账号了"的提醒。
  *
- * <p>本身不是异步的：调用它的 RegistrationCodeService.sendCode 已经在后台线程里跑。
+ * <p>本身不是异步的：调用它的 RegistrationLinkService.sendLink 已经在后台线程里跑。
  */
 @Component
 public class RegistrationEmailSender {
@@ -25,18 +25,18 @@ public class RegistrationEmailSender {
         this.settings = settings;
     }
 
-    public void sendCode(String email, String code, long ttlMinutes) {
-        send(email, "Your TriageDeck verification code: " + code, """
-                Your TriageDeck verification code is:
+    public void sendLink(String email, String link, long ttlMinutes) {
+        send(email, "Finish creating your TriageDeck account", """
+                Open this link to set your password and finish creating your TriageDeck account:
 
                 %s
 
                 It expires in %d minutes. If you didn't try to sign up for TriageDeck, you can ignore this email.
-                """.formatted(code, ttlMinutes));
+                """.formatted(link, ttlMinutes));
     }
 
     /**
-     * 有人拿一个已注册的邮箱来要验证码。接口那边看不出区别（照样 204），真正的邮箱主人会收到这封提醒，
+     * 有人拿一个已注册的邮箱来要注册链接。接口那边看不出区别（照样 204），真正的邮箱主人会收到这封提醒，
      * 知道自己已经有账号、直接去登录就行。
      */
     public void sendAlreadyRegistered(String email) {

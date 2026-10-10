@@ -1,8 +1,8 @@
 package com.triagedeck.auth;
 
 import com.triagedeck.auth.token.RefreshTokenRequest;
-import com.triagedeck.auth.verification.RegistrationCodeService;
-import com.triagedeck.auth.verification.SendRegistrationCodeRequest;
+import com.triagedeck.auth.verification.RegistrationLinkService;
+import com.triagedeck.auth.verification.SendRegistrationLinkRequest;
 import com.triagedeck.ratelimit.RateLimitProperties;
 import com.triagedeck.ratelimit.RateLimiter;
 import com.triagedeck.user.AppUser;
@@ -22,34 +22,34 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
-    private final RegistrationCodeService registrationCodeService;
+    private final RegistrationLinkService registrationLinkService;
     private final RateLimiter rateLimiter;
     private final RateLimitProperties limits;
 
     public AuthController(
             AuthService authService,
-            RegistrationCodeService registrationCodeService,
+            RegistrationLinkService registrationLinkService,
             RateLimiter rateLimiter,
             RateLimitProperties limits) {
         this.authService = authService;
-        this.registrationCodeService = registrationCodeService;
+        this.registrationLinkService = registrationLinkService;
         this.rateLimiter = rateLimiter;
         this.limits = limits;
     }
 
     /**
-     * 注册第一步：给邮箱发 6 位验证码。不管邮箱是否已注册、是否还在 60 秒冷却里，都返回 204，
-     * 没法用它探测谁注册过（已注册的邮箱收到的是"你已经有账号了"的提醒，不是验证码）。
+     * 注册第一步：给邮箱发注册链接。不管邮箱是否已注册、是否还在 60 秒冷却里，都返回 204，
+     * 没法用它探测谁注册过（已注册的邮箱收到的是"你已经有账号了"的提醒，不是注册链接）。
      */
-    @PostMapping("/api/auth/registration-code")
+    @PostMapping("/api/auth/registration-link")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void sendRegistrationCode(@Valid @RequestBody SendRegistrationCodeRequest request, HttpServletRequest http) {
+    public void sendRegistrationLink(@Valid @RequestBody SendRegistrationLinkRequest request, HttpServletRequest http) {
         // 同一个邮箱另有 60 秒冷却；这里再按 IP 限制，防止有人换着邮箱批量触发发信
-        rateLimiter.check("registration-code:ip:" + http.getRemoteAddr(), limits.registrationCodePerIp());
-        registrationCodeService.sendCode(request.email());
+        rateLimiter.check("registration-link:ip:" + http.getRemoteAddr(), limits.registrationLinkPerIp());
+        registrationLinkService.sendLink(request.email());
     }
 
-    /** 注册第二步：邮箱 + 验证码 + 密码，验证码对了才创建账号，创建后可以直接登录。 */
+    /** 注册第二步：链接里的 token + 密码 + 名字，链接有效才创建账号，创建后可以直接登录。 */
     @PostMapping("/api/auth/register")
     @ResponseStatus(HttpStatus.CREATED)
     public UserResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {

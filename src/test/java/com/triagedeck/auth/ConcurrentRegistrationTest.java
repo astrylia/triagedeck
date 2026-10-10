@@ -7,7 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.triagedeck.TestcontainersConfiguration;
-import com.triagedeck.auth.verification.RegistrationCodeService;
+import com.triagedeck.auth.verification.RegistrationLinkService;
 import com.triagedeck.user.AppUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +38,7 @@ class ConcurrentRegistrationTest {
     AppUserRepository userRepository;
 
     @Autowired
-    RegistrationCodeService registrationCodes;
+    RegistrationLinkService registrationLinks;
 
     @Test
     void registerReturnsConflictWhenDatabaseRejectsDuplicateEmail() throws Exception {
@@ -55,7 +55,7 @@ class ConcurrentRegistrationTest {
         return mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"email": "%s", "code": "%s", "password": "correct-horse-battery", "name": "Alice"}
-                        """.formatted(email, registrationCodes.issueCode(email))));
+                        {"token": "%s", "password": "correct-horse-battery", "name": "Alice"}
+                        """.formatted(registrationLinks.issueToken(email))));
     }
 }

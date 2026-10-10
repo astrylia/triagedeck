@@ -14,7 +14,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
-import com.triagedeck.auth.verification.RegistrationCodeService;
+import com.triagedeck.auth.verification.RegistrationLinkService;
+import com.triagedeck.common.SecureTokens;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
 import java.nio.charset.StandardCharsets;
@@ -45,7 +46,7 @@ class AuthControllerTest {
     AppUserRepository userRepository;
 
     @Autowired
-    RegistrationCodeService registrationCodes;
+    RegistrationLinkService registrationLinks;
 
     @MockitoSpyBean
     PasswordEncoder passwordEncoder;
@@ -74,10 +75,10 @@ class AuthControllerTest {
 
     @Test
     void registerRejectsInvalidInput() throws Exception {
-        register("not-an-email", "short", "")
+        registerWithToken("", "short", "")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors[*].field").value(containsInAnyOrder("email", "password", "name")));
+                .andExpect(jsonPath("$.errors[*].field").value(containsInAnyOrder("token", "password", "name")));
     }
 
     @Test
@@ -94,14 +95,13 @@ class AuthControllerTest {
         // 出现在常见泄露密码列表里（比较时忽略大小写）
         register("alice@acme.com", "1Q2W3E4R5T6Y7U8I9O0P", "Alice")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors[0].field").value("password"))
-                .andExpect(jsonPath("$.errors[0].message").value(containsString("too common")));
+                .andExpect(jsonPath("$.code").value("WEAK_PASSWORD"))
+                .andExpect(jsonPath("$.detail").value(containsString("too common")));
 
-        // 直接拿自己的邮箱当密码
+        // 直接拿自己的邮箱当密码（邮箱来自注册链接，不在请求里）
         register("alice.smith@acme.com", "Alice.Smith@acme.com", "Alice")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("password"));
+                .andExpect(jsonPath("$.code").value("WEAK_PASSWORD"));
 
         assertThat(userRepository.findByEmail("alice@acme.com")).isEmpty();
         assertThat(userRepository.findByEmail("alice.smith@acme.com")).isEmpty();
@@ -184,43 +184,18 @@ class AuthControllerTest {
     }
 
     @Test
-    void registerRequiresTheCodeSentToThatEmail() throws Exception {
-        String aliceCode = registrationCodes.issueCode("alice@acme.com");
-        String wrongCode = aliceCode.equals("000000") ? "000001" : "000000";
-
-        register("alice@acme.com", wrongCode, "correct-horse-battery", "Alice")
+    void registerRequiresAValidRegistrationLink() throws Exception {
+        registerWithToken(SecureTokens.generate(), "correct-horse-battery", "Alice")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_VERIFICATION_CODE"));
-        // 别人邮箱的验证码不能拿来注册自己的邮箱
-        register("mallory@acme.com", aliceCode, "correct-horse-battery", "Mallory")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_VERIFICATION_CODE"));
-        // 不是 6 位数字，在参数校验那一步就被挡住
-        register("alice@acme.com", "12345", "correct-horse-battery", "Alice")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors[0].field").value("code"));
-
-        assertThat(userRepository.findByEmail("alice@acme.com")).isEmpty();
-        assertThat(userRepository.findByEmail("mallory@acme.com")).isEmpty();
+                .andExpect(jsonPath("$.code").value("INVALID_REGISTRATION_LINK"));
     }
 
     @Test
     void registeredUserCanLogInRightAway() throws Exception {
-        // 注册时已经用验证码证明过邮箱，不需要再验证
+        // 注册时已经用注册链接证明过邮箱，不需要再验证
         register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
 
         login("alice@acme.com", "correct-horse-battery").andExpect(status().isOk());
-    }
-
-    @Test
-    void registeredEmailCannotBeProbedWithoutACode() throws Exception {
-        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
-
-        // 没有有效验证码时，已注册和没注册的邮箱得到同样的 400，看不出 alice 注册过
-        register("alice@acme.com", "123456", "another-long-password", "Alice 2")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_VERIFICATION_CODE"));
     }
 
     @Test
@@ -236,17 +211,17 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
-    /** 跳过收信这一步：直接生成一个验证码，再带着它注册。 */
+    /** 跳过收信这一步：直接给这个邮箱生成一个注册 token，再带着它注册。 */
     private ResultActions register(String email, String password, String name) throws Exception {
-        return register(email, registrationCodes.issueCode(email), password, name);
+        return registerWithToken(registrationLinks.issueToken(email), password, name);
     }
 
-    private ResultActions register(String email, String code, String password, String name) throws Exception {
+    private ResultActions registerWithToken(String token, String password, String name) throws Exception {
         return mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"email": "%s", "code": "%s", "password": "%s", "name": "%s"}
-                        """.formatted(email, code, password, name)));
+                        {"token": "%s", "password": "%s", "name": "%s"}
+                        """.formatted(token, password, name)));
     }
 
     private ResultActions login(String email, String password) throws Exception {

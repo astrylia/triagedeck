@@ -9,7 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.triagedeck.TestcontainersConfiguration;
-import com.triagedeck.auth.verification.RegistrationCodeService;
+import com.triagedeck.auth.verification.RegistrationLinkService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
             "triagedeck.rate-limit.login-per-ip.limit=5",
             "triagedeck.rate-limit.login-per-email.limit=3",
             "triagedeck.rate-limit.register-per-ip.limit=2",
-            "triagedeck.rate-limit.registration-code-per-ip.limit=2"
+            "triagedeck.rate-limit.registration-link-per-ip.limit=2"
         })
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
@@ -47,7 +47,7 @@ class RateLimitTest {
     StringRedisTemplate redis;
 
     @Autowired
-    RegistrationCodeService registrationCodes;
+    RegistrationLinkService registrationLinks;
 
     @BeforeEach
     void clearCounters() {
@@ -95,11 +95,11 @@ class RateLimitTest {
     }
 
     @Test
-    void registrationCodeIsLimitedPerAddress() throws Exception {
-        sendCode("a@acme.com", "10.0.2.1").andExpect(status().isNoContent());
-        sendCode("b@acme.com", "10.0.2.1").andExpect(status().isNoContent());
+    void registrationLinkIsLimitedPerAddress() throws Exception {
+        sendLink("a@acme.com", "10.0.2.1").andExpect(status().isNoContent());
+        sendLink("b@acme.com", "10.0.2.1").andExpect(status().isNoContent());
 
-        sendCode("c@acme.com", "10.0.2.1").andExpect(status().isTooManyRequests());
+        sendLink("c@acme.com", "10.0.2.1").andExpect(status().isTooManyRequests());
     }
 
     @Test
@@ -133,12 +133,12 @@ class RateLimitTest {
                 })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"email": "%s", "code": "%s", "password": "correct-horse-battery", "name": "Test"}
-                        """.formatted(email, registrationCodes.issueCode(email))));
+                        {"token": "%s", "password": "correct-horse-battery", "name": "Test"}
+                        """.formatted(registrationLinks.issueToken(email))));
     }
 
-    private ResultActions sendCode(String email, String address) throws Exception {
-        return mockMvc.perform(post("/api/auth/registration-code")
+    private ResultActions sendLink(String email, String address) throws Exception {
+        return mockMvc.perform(post("/api/auth/registration-link")
                 .with(request -> {
                     request.setRemoteAddr(address);
                     return request;

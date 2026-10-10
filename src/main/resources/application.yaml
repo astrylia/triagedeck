@@ -39,14 +39,13 @@ triagedeck:
     refresh-token-ttl: 14d
   mail:
     from: ${MAIL_FROM:TriageDeck <no-reply@triagedeck.local>}
-  registration-code:
-    # 注册验证码 10 分钟内有效，最多试 5 次；同一个邮箱 60 秒内只发一次
-    ttl: 10m
+  registration-link:
+    # 邮件里的链接指向前端的设密码页面：<url>?token=...
+    url: ${REGISTRATION_LINK_URL:http://localhost:5173/register}
+    # 1 小时没有标准依据：要够邮件延迟、用户晚点才看到，又不让链接在邮箱里长期有效
+    ttl: 1h
+    # 同一个邮箱 60 秒内只发一次
     resend-cooldown: 60s
-    max-attempts: 5
-    # 同一个邮箱 24 小时内最多输错 10 次，换新验证码也累计（NIST SP 800-63B 第 4 版 3.1.3.2 节：发新验证码不能清零失败次数）
-    max-failures-per-email: 10
-    failure-window: 24h
   rate-limit:
     enabled: true
     # 这些数字没有标准可依（NIST、OWASP 都只给原则，不给"每分钟几次"），是按下面的思路估的：
@@ -62,7 +61,7 @@ triagedeck:
     register-per-ip:
       limit: 100
       window: 1h
-    # 同一个邮箱另有 60 秒的发码冷却和每天输错次数上限（见上面的 registration-code）
-    registration-code-per-ip:
+    # 同一个邮箱另有 60 秒的发信冷却（见上面的 registration-link）
+    registration-link-per-ip:
       limit: 50
       window: 10m

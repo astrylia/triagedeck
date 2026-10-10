@@ -19,7 +19,7 @@ public record RateLimitProperties(
         @Valid @NotNull Rule loginPerIp,
         @Valid @NotNull Rule loginPerEmail,
         @Valid @NotNull Rule registerPerIp,
-        @Valid @NotNull Rule registrationCodePerIp) {
+        @Valid @NotNull Rule registrationLinkPerIp) {
 
     public record Rule(@Positive int limit, @NotNull Duration window) {}
 }

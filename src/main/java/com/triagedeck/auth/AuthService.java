@@ -1,9 +1,10 @@
 package com.triagedeck.auth;
 
+import com.triagedeck.auth.password.PasswordBlocklist;
 import com.triagedeck.auth.token.RefreshTokenRequest;
 import com.triagedeck.auth.token.RefreshTokenService;
 import com.triagedeck.auth.token.TokenService;
-import com.triagedeck.auth.verification.RegistrationCodeService;
+import com.triagedeck.auth.verification.RegistrationLinkService;
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
 import com.triagedeck.user.AppUser;
@@ -21,7 +22,8 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final RefreshTokenService refreshTokenService;
-    private final RegistrationCodeService registrationCodeService;
+    private final RegistrationLinkService registrationLinkService;
+    private final PasswordBlocklist passwordBlocklist;
     // 邮箱不存在时拿来做一次"假的"密码比对，见 login
     private final String dummyPasswordHash;
 
@@ -30,33 +32,41 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             TokenService tokenService,
             RefreshTokenService refreshTokenService,
-            RegistrationCodeService registrationCodeService) {
+            RegistrationLinkService registrationLinkService,
+            PasswordBlocklist passwordBlocklist) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.refreshTokenService = refreshTokenService;
-        this.registrationCodeService = registrationCodeService;
+        this.registrationLinkService = registrationLinkService;
+        this.passwordBlocklist = passwordBlocklist;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-constant-time-login");
     }
 
     /**
-     * 凭邮箱收到的验证码注册新用户，返回保存后的 AppUser。建出来的账号邮箱已经验证过，可以直接登录。
-     * 验证码不对抛 INVALID_VERIFICATION_CODE（400），邮箱已被使用抛 EMAIL_ALREADY_USED（409）。
+     * 凭邮件里的注册链接注册新用户，返回保存后的 AppUser。邮箱由链接里的 token 决定，建出来的账号可以直接登录。
+     * 链接无效抛 INVALID_REGISTRATION_LINK（400），密码太常见抛 WEAK_PASSWORD（400），邮箱已被使用抛 EMAIL_ALREADY_USED（409）。
      *
      * <p>方法本身不加 @Transactional：Argon2 算一次要几十毫秒，在事务外面先算好哈希，
      * 写库只有一条 INSERT，saveAndFlush 自己会开事务，算哈希时不占着数据库连接。
      */
     public AppUser register(RegisterRequest request) {
-        String normalizedEmail = AppUser.normalizeEmail(request.email());
-        // 先核对验证码，再查邮箱是否已注册：没有验证码的人，没法拿这个接口探测邮箱有没有注册过
-        registrationCodeService.verifyAndConsume(normalizedEmail, request.code());
-        if (userRepository.existsByEmail(normalizedEmail)) {
+        String email = registrationLinkService.emailFor(request.token());
+        // 密码规则见 PasswordBlocklist：除了常见密码，还不能是自己的邮箱、邮箱 @ 前面的部分或名字。
+        // 放在用掉 token 之前：密码不合格时链接还能用，用户换个密码重新提交就行
+        String emailLocalPart = email.substring(0, email.indexOf('@'));
+        if (passwordBlocklist.isBlocked(request.password(), email, emailLocalPart, request.name())) {
+            throw new BusinessException(ErrorCode.WEAK_PASSWORD);
+        }
+        if (userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
         }
         String passwordHash = passwordEncoder.encode(request.password());
+        // 前面的检查都过了才用掉 token：任何一步不通过，链接都还能接着用
+        registrationLinkService.consume(request.token());
         try {
             // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
-            return userRepository.saveAndFlush(new AppUser(normalizedEmail, passwordHash, request.name()));
+            return userRepository.saveAndFlush(new AppUser(email, passwordHash, request.name()));
         } catch (DataIntegrityViolationException e) {
             // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
