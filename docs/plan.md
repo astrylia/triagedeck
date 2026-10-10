@@ -39,7 +39,7 @@
 | 缓存 | Redis | 热点数据、限流 |
 | 测试 | JUnit 5 + Mockito（单元），Testcontainers（真实 Postgres 集成测试），MockMvc | 后端岗位非常看重 |
 | 可观测性 | Spring Boot Actuator、结构化日志 | 健康检查、指标 |
-| 本地环境 | Docker Compose（Postgres + Redis） | 一条命令启动依赖 |
+| 本地环境 | Docker Compose（Postgres + Redis + Mailpit 收开发邮件） | 一条命令启动依赖 |
 | CI/CD | GitHub Actions（构建 + 测试）；Docker 镜像部署到 Railway / Fly.io / 云服务器 | 有线上演示链接 |
 | 前端 | 由你用 Claude Code / Codex 根据 OpenAPI 生成 | 带教只覆盖后端 |
 
@@ -65,16 +65,23 @@ Tag / TicketTag
 
 每个阶段结束都是一个可以写进简历、可以演示的里程碑。
 
-### 阶段 1：地基（项目骨架 + 认证 + 多租户）✅ 2026-10-08 完成
-- GitHub 仓库，Spring Boot 4.1 + Flyway + Docker Compose（Postgres；Redis 等到阶段 4 做限流时再加）
+### 阶段 1：地基（项目骨架 + 认证 + 多租户）✅ 2026-10-10 完成，认证部分不再加功能
+- GitHub 仓库，Spring Boot 4.1 + Flyway + Docker Compose（Postgres、Redis、Mailpit）
 - Spotless 统一代码格式，GitHub Actions 跑构建和测试
-- 注册登录：JWT access token（15 分钟）+ refresh token（14 天，每次使用都轮换，重复使用视为被盗、吊销该用户全部 refresh token）；密码 Argon2id、15–128 位、NIST 常见密码黑名单
-- 创建组织；邀请成员（一次性链接，绑定邮箱，7 天有效，数据库只存 token 的 SHA-256）；接受邀请
+- 注册：先填邮箱，系统发一次性注册链接（1 小时有效），点开链接设密码才建账号，所以每个账号的邮箱都验证过
+- 登录：JWT access token（15 分钟）+ refresh token（14 天，每次使用都轮换，重复使用视为被盗、吊销该用户全部 refresh token）
+- 密码：Argon2id（OWASP 最低参数 19 MiB）、15–128 位、不能是常见密码、不能就是自己的邮箱
+- 限流（Redis，最初计划放到阶段 4，实际在阶段 1 就加了）：按 IP 和按邮箱限制登录、注册、发注册链接的次数，超了返回 429
+- 创建组织；邀请成员：系统把一次性邀请链接发到被邀请人的邮箱（7 天有效，数据库只存 token 的 SHA-256），已有账号的人登录后接受，没有账号的人在邀请页设密码直接加入
 - 租户隔离：组织 id 在 URL 里，Service 层显式调用 `requireMembership` / `requireRole`（不是成员 404，角色不够 403），见 `docs/adr/0002`。最初计划的 `@PreAuthorize` + `TenantContext` 没有采用
 - `TenantIsolationTest`：另一个组织的 OWNER 调用每个组织下的接口都得到 404；新增 `{orgId}` 接口没登记进测试会让 CI 失败
 - 统一错误格式：RFC 9457 ProblemDetail + `code`，包括 Spring Security 的 401
 - Swagger 文档自动生成（`/swagger-ui.html`）
-- **里程碑**：API 能注册、登录续期、建组织、邀请成员、切换组织（`GET /api/orgs` + URL 里的 orgId），58 个测试，CI 是绿的
+- **里程碑**：API 能注册、登录续期、建组织、邀请成员、切换组织（`GET /api/orgs` + URL 里的 orgId），79 个测试，CI 是绿的
+- **暂不做**（求职项目，安全不再深挖，面试时能说清楚缺什么、怎么补即可）：
+  - 忘记密码
+  - 登录连续失败后等待时间翻倍（做法放在 `login-backoff` 分支，没有合并）；现在只有按邮箱每分钟 10 次的限制
+  - 撞库防护（注册时查泄露密码库 Have I Been Pwned、二次验证）
 
 ### 阶段 2：工单核心
 - 工单 CRUD、状态机、优先级、标签
@@ -91,7 +98,7 @@ Tag / TicketTag
 ### 阶段 4：质量与上线
 - 补齐单元测试（状态机、SLA 计算、权限）和 API 集成测试
 - 前端交给 AI 编码工具，基于 OpenAPI 文档生成（工单列表、详情、分派）
-- 结构化日志、Actuator 健康检查、Redis 限流
+- 结构化日志、Actuator 健康检查（Redis 限流已在阶段 1 完成）
 - 部署 API 和前端，托管 Postgres + Redis，准备种子演示数据
 - README：架构图、截图、设计取舍、演示账号
 - **里程碑**：有线上链接和测试覆盖的作品，可以直接放简历
@@ -105,5 +112,5 @@ Tag / TicketTag
 
 ## 6. 带教方式
 
-- 每一步先讲"为什么这样做"，再给你任务，你来写；卡住了我给提示，最后再给参考实现
+- 代码由 Claude 写（2026-10-08 起），每次交付说明改了哪些文件、各自做什么、为什么这样设计；你决定读多深
 - 每个阶段结束一起做一次代码回顾，并整理一段可以写进简历的描述和面试问答
