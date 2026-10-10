@@ -24,11 +24,10 @@ public class InvitationEmailSender {
         mailer.send(email, "You're invited to join " + orgName + " on TriageDeck", """
                 You've been invited to join %s on TriageDeck as %s.
 
-                Open this link to accept the invitation:
+                Open this link to accept the invitation and sign in (no account or password needed):
 
                 %s
 
-                If you don't have a TriageDeck account yet, you can set a password on that page and join right away.
                 The link expires in %d days. If you weren't expecting this invitation, you can ignore this email.
                 """.formatted(
                         orgName, role, link, validForDays));

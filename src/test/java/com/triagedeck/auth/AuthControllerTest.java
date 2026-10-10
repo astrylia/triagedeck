@@ -1,12 +1,9 @@
 package com.triagedeck.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -14,7 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
-import com.triagedeck.auth.verification.RegistrationLinkService;
+import com.triagedeck.auth.link.LoginLinkService;
 import com.triagedeck.common.SecureTokens;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
@@ -26,10 +23,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,168 +40,76 @@ class AuthControllerTest {
     AppUserRepository userRepository;
 
     @Autowired
-    RegistrationLinkService registrationLinks;
-
-    @MockitoSpyBean
-    PasswordEncoder passwordEncoder;
+    LoginLinkService loginLinks;
 
     @Test
-    void registerCreatesUserWithHashedPassword() throws Exception {
-        register("Alice@Acme.com", "correct-horse-battery", "Alice")
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.email").value("alice@acme.com"))
-                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+    void firstLoginCreatesAnAccountNamedAfterTheEmail() throws Exception {
+        String token = accessTokenFrom(login(loginLinks.issueToken("Alice.Smith@Acme.com")));
 
-        var saved = userRepository.findByEmail("alice@acme.com").orElseThrow();
-        assertThat(saved.getPasswordHash())
-                .isNotEqualTo("correct-horse-battery")
-                .startsWith("{argon2}")
-                // OWASP 的最低配置：内存 19 MiB（19456 KiB）、迭代 2 次、并行度 1
-                .contains("m=19456,t=2,p=1");
+        me(token)
+                .andExpect(jsonPath("$.email").value("alice.smith@acme.com"))
+                .andExpect(jsonPath("$.name").value("alice.smith"));
     }
 
     @Test
-    void registerRejectsEmailAlreadyUsedIgnoringCase() throws Exception {
-        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
+    void loginUsesTheExistingAccount() throws Exception {
+        AppUser alice = userRepository.saveAndFlush(new AppUser("alice@acme.com", "Alice"));
 
-        register("ALICE@acme.com", "another-long-password", "Alice 2")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_USED"));
+        String token = accessTokenFrom(login(loginLinks.issueToken("alice@acme.com")));
+
+        me(token)
+                .andExpect(jsonPath("$.id").value(alice.getId().toString()))
+                .andExpect(jsonPath("$.name").value("Alice"));
+        assertThat(userRepository.count()).isEqualTo(1);
     }
 
     @Test
-    void registerRejectsInvalidInput() throws Exception {
-        registerWithToken("", "short", "")
+    void loginLinkWorksOnlyOnce() throws Exception {
+        String link = loginLinks.issueToken("alice@acme.com");
+        login(link).andExpect(status().isOk());
+
+        login(link)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LOGIN_LINK"));
+    }
+
+    @Test
+    void unknownLinkIsRejected() throws Exception {
+        login(SecureTokens.generate())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LOGIN_LINK"));
+        assertThat(userRepository.count()).isZero();
+    }
+
+    @Test
+    void loginRejectsBlankToken() throws Exception {
+        login("")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors[*].field").value(containsInAnyOrder("token", "password", "name")));
+                .andExpect(jsonPath("$.errors[0].field").value("token"));
     }
 
     @Test
-    void registerRequiresPasswordOfAtLeast15Characters() throws Exception {
-        register("alice@acme.com", "correct-horse-", "Alice")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("password"));
-
-        register("alice@acme.com", "correct-horse-b", "Alice").andExpect(status().isCreated());
-    }
-
-    @Test
-    void registerRejectsCommonOrGuessablePasswords() throws Exception {
-        // 出现在常见泄露密码列表里（比较时忽略大小写）
-        register("alice@acme.com", "1Q2W3E4R5T6Y7U8I9O0P", "Alice")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("WEAK_PASSWORD"))
-                .andExpect(jsonPath("$.detail").value(containsString("too common")));
-
-        // 直接拿自己的邮箱当密码（邮箱来自注册链接，不在请求里）
-        register("alice.smith@acme.com", "Alice.Smith@acme.com", "Alice")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("WEAK_PASSWORD"));
-
-        assertThat(userRepository.findByEmail("alice@acme.com")).isEmpty();
-        assertThat(userRepository.findByEmail("alice.smith@acme.com")).isEmpty();
-    }
-
-    @Test
-    void registerAcceptsLongUnicodePasswordUpTo128Characters() throws Exception {
-        // 64 个汉字 = 192 字节：bcrypt 的 72 字节上限会拒绝它，Argon2 没有这个限制
-        String chinesePassword = "一二三四五六七八".repeat(8);
-        register("alice@acme.com", chinesePassword, "Alice").andExpect(status().isCreated());
-        login("alice@acme.com", chinesePassword).andExpect(status().isOk());
-
-        register("bob@acme.com", "x".repeat(129), "Bob")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("password"));
-    }
-
-    @Test
-    void userWithLegacyBcryptHashCanStillLogIn() throws Exception {
-        // 模拟换算法之前注册的用户：数据库里存的是 {bcrypt} 前缀的哈希
-        String legacyHash = "{bcrypt}" + new BCryptPasswordEncoder().encode("old-password");
-        userRepository.save(new AppUser("legacy@acme.com", legacyHash, "Legacy"));
-
-        login("legacy@acme.com", "old-password").andExpect(status().isOk());
-    }
-
-    @Test
-    void userHashedWithOlderArgon2ParametersCanStillLogIn() throws Exception {
-        // 模拟调参数之前注册的用户：哈希是按 Spring 默认的 16 MiB 算的
-        String olderHash = "{argon2}"
-                + Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8().encode("old-password");
-        userRepository.save(new AppUser("older@acme.com", olderHash, "Older"));
-
-        login("older@acme.com", "old-password").andExpect(status().isOk());
-    }
-
-    @Test
-    void loginReturnsTokenThatAuthenticatesRequests() throws Exception {
-        String userId = JsonPath.read(
-                register("alice@acme.com", "correct-horse-battery", "Alice")
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString(),
-                "$.id");
-
-        String token = JsonPath.read(
-                login("Alice@acme.com", "correct-horse-battery")
-                        .andExpect(status().isOk())
-                        .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString(),
-                "$.accessToken");
+    void accessTokenIsSignedWithHs256() throws Exception {
+        String token = accessTokenFrom(login(loginLinks.issueToken("alice@acme.com")));
 
         // JWT 第一段是 header：签名算法必须是 HS256，和解码器只接受的算法一致
         String jwtHeader = new String(Base64.getUrlDecoder().decode(token.split("\\.")[0]), StandardCharsets.UTF_8);
         assertThat((String) JsonPath.read(jwtHeader, "$.alg")).isEqualTo("HS256");
+    }
 
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + token))
+    @Test
+    void userCanChangeTheirName() throws Exception {
+        String token = accessTokenFrom(login(loginLinks.issueToken("alice@acme.com")));
+
+        rename(token, "Alice Smith")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(userId))
-                .andExpect(jsonPath("$.email").value("alice@acme.com"));
-    }
+                .andExpect(jsonPath("$.name").value("Alice Smith"));
+        me(token).andExpect(jsonPath("$.name").value("Alice Smith"));
 
-    @Test
-    void loginRejectsWrongPasswordAndUnknownEmailTheSameWay() throws Exception {
-        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
-
-        String wrongPassword = login("alice@acme.com", "wrong-password")
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String unknownEmail = login("nobody@acme.com", "correct-horse-battery")
-                .andExpect(status().isUnauthorized())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        // 两种失败的响应体必须完全一样，否则攻击者能据此判断邮箱是否注册过
-        assertThat(unknownEmail).isEqualTo(wrongPassword);
-    }
-
-    @Test
-    void unknownEmailStillRunsAPasswordCheck() throws Exception {
-        // 邮箱不存在时也要比对一次密码，响应时间才和"邮箱存在、密码错误"差不多，没法靠计时探测邮箱
-        login("nobody@acme.com", "correct-horse-battery").andExpect(status().isUnauthorized());
-
-        verify(passwordEncoder).matches(eq("correct-horse-battery"), anyString());
-    }
-
-    @Test
-    void registerRequiresAValidRegistrationLink() throws Exception {
-        registerWithToken(SecureTokens.generate(), "correct-horse-battery", "Alice")
+        rename(token, "")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REGISTRATION_LINK"));
-    }
-
-    @Test
-    void registeredUserCanLogInRightAway() throws Exception {
-        // 注册时已经用注册链接证明过邮箱，不需要再验证
-        register("alice@acme.com", "correct-horse-battery", "Alice").andExpect(status().isCreated());
-
-        login("alice@acme.com", "correct-horse-battery").andExpect(status().isOk());
+                .andExpect(jsonPath("$.errors[0].field").value("name"));
     }
 
     @Test
@@ -224,24 +125,33 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
-    /** 跳过收信这一步：直接给这个邮箱生成一个注册 token，再带着它注册。 */
-    private ResultActions register(String email, String password, String name) throws Exception {
-        return registerWithToken(registrationLinks.issueToken(email), password, name);
-    }
-
-    private ResultActions registerWithToken(String token, String password, String name) throws Exception {
-        return mockMvc.perform(post("/api/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"token": "%s", "password": "%s", "name": "%s"}
-                        """.formatted(token, password, name)));
-    }
-
-    private ResultActions login(String email, String password) throws Exception {
+    private ResultActions login(String linkToken) throws Exception {
         return mockMvc.perform(
                 post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"email": "%s", "password": "%s"}
-                        """.formatted(
-                                email, password)));
+                        {"token": "%s"}
+                        """.formatted(linkToken)));
+    }
+
+    private static String accessTokenFrom(ResultActions login) throws Exception {
+        String body = login.andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return JsonPath.read(body, "$.accessToken");
+    }
+
+    private ResultActions me(String accessToken) throws Exception {
+        return mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk());
+    }
+
+    private ResultActions rename(String accessToken, String name) throws Exception {
+        return mockMvc.perform(patch("/api/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"name": "%s"}
+                        """.formatted(name)));
     }
 }

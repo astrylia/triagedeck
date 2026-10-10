@@ -140,7 +140,7 @@ class TenantIsolationTest {
     }
 
     private AppUser saveUser(String email) {
-        return userRepository.saveAndFlush(new AppUser(email, "{noop}unused", "Test User"));
+        return userRepository.saveAndFlush(new AppUser(email, "Test User"));
     }
 
     private UUID saveOrganization(String slug, AppUser owner, Role role) {

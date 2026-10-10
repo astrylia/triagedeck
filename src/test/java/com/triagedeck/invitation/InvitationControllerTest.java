@@ -134,7 +134,7 @@ class InvitationControllerTest {
     }
 
     private AppUser saveUser(String email) {
-        return userRepository.saveAndFlush(new AppUser(email, "{noop}unused", "Test User"));
+        return userRepository.saveAndFlush(new AppUser(email, "Test User"));
     }
 
     /** 直接往数据库里放一个组织和一条成员关系，不走创建组织的接口，这样能指定任意角色。 */

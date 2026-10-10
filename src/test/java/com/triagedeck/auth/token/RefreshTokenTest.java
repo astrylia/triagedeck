@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.triagedeck.TestcontainersConfiguration;
+import com.triagedeck.auth.link.LoginLinkService;
 import com.triagedeck.common.SecureTokens;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
@@ -21,7 +22,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.jdbc.JdbcTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -38,8 +38,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(TestcontainersConfiguration.class)
 class RefreshTokenTest {
 
-    static final String PASSWORD = "correct-horse-battery";
-
     @Autowired
     MockMvc mockMvc;
 
@@ -50,7 +48,7 @@ class RefreshTokenTest {
     RefreshTokenRepository refreshTokenRepository;
 
     @Autowired
-    PasswordEncoder passwordEncoder;
+    LoginLinkService loginLinks;
 
     @Autowired
     TransactionTemplate transactionTemplate;
@@ -62,7 +60,7 @@ class RefreshTokenTest {
 
     @BeforeEach
     void setUp() {
-        alice = userRepository.saveAndFlush(new AppUser("alice@acme.com", passwordEncoder.encode(PASSWORD), "Alice"));
+        alice = userRepository.saveAndFlush(new AppUser("alice@acme.com", "Alice"));
     }
 
     @AfterEach
@@ -151,8 +149,8 @@ class RefreshTokenTest {
         return mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                        {"email": "alice@acme.com", "password": "%s"}
-                        """.formatted(PASSWORD)))
+                        {"token": "%s"}
+                        """.formatted(loginLinks.issueToken("alice@acme.com"))))
                 .andExpect(status().isOk());
     }
 

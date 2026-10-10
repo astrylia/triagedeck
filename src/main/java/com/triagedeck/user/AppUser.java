@@ -23,9 +23,6 @@ public class AppUser {
     private String email;
 
     @Column(nullable = false)
-    private String passwordHash;
-
-    @Column(nullable = false)
     private String name;
 
     @CreationTimestamp
@@ -34,13 +31,16 @@ public class AppUser {
 
     protected AppUser() {}
 
-    public AppUser(String email, String passwordHash, String name) {
+    public AppUser(String email, String name) {
         this.email = normalizeEmail(email);
-        this.passwordHash = passwordHash;
         this.name = name;
     }
 
-    /** 注册和登录都要用同一套规则处理邮箱，否则 "Alice@X.com" 注册后用 "alice@x.com" 登录会找不到人。 */
+    public void rename(String name) {
+        this.name = name;
+    }
+
+    /** 所有地方都要用同一套规则处理邮箱，否则 "Alice@X.com" 建的账号，用 "alice@x.com" 登录时会找不到人。 */
     public static String normalizeEmail(String email) {
         return email.strip().toLowerCase(Locale.ROOT);
     }

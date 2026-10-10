@@ -15,11 +15,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties("triagedeck.rate-limit")
 public record RateLimitProperties(
-        boolean enabled,
-        @Valid @NotNull Rule loginPerIp,
-        @Valid @NotNull Rule loginPerEmail,
-        @Valid @NotNull Rule registerPerIp,
-        @Valid @NotNull Rule registrationLinkPerIp) {
+        boolean enabled, @Valid @NotNull Rule loginLinkPerIp) {
 
     public record Rule(@Positive int limit, @NotNull Duration window) {}
 }

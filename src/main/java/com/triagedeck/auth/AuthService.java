@@ -1,103 +1,67 @@
 package com.triagedeck.auth;
 
-import com.triagedeck.auth.password.PasswordBlocklist;
+import com.triagedeck.auth.link.LoginLinkService;
 import com.triagedeck.auth.token.RefreshTokenRequest;
 import com.triagedeck.auth.token.RefreshTokenService;
 import com.triagedeck.auth.token.TokenService;
-import com.triagedeck.auth.verification.RegistrationLinkService;
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.ErrorCode;
 import com.triagedeck.user.AppUser;
 import com.triagedeck.user.AppUserRepository;
-import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
 
     private final AppUserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final RefreshTokenService refreshTokenService;
-    private final RegistrationLinkService registrationLinkService;
-    private final PasswordBlocklist passwordBlocklist;
-    // 邮箱不存在时拿来做一次"假的"密码比对，见 login
-    private final String dummyPasswordHash;
+    private final LoginLinkService loginLinkService;
 
     public AuthService(
             AppUserRepository userRepository,
-            PasswordEncoder passwordEncoder,
             TokenService tokenService,
             RefreshTokenService refreshTokenService,
-            RegistrationLinkService registrationLinkService,
-            PasswordBlocklist passwordBlocklist) {
+            LoginLinkService loginLinkService) {
         this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.refreshTokenService = refreshTokenService;
-        this.registrationLinkService = registrationLinkService;
-        this.passwordBlocklist = passwordBlocklist;
-        this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-constant-time-login");
+        this.loginLinkService = loginLinkService;
     }
 
     /**
-     * 凭邮件里的注册链接注册新用户，返回保存后的 AppUser。邮箱由链接里的 token 决定，建出来的账号可以直接登录。
-     * 链接无效抛 INVALID_REGISTRATION_LINK（400），其余错误见 createAccount。
-     */
-    public AppUser register(RegisterRequest request) {
-        String email = registrationLinkService.emailFor(request.token());
-        AppUser user = createAccount(email, request.password(), request.name());
-        // 账号建好才删 token：前面任何一步不通过（比如密码太常见），链接都还能接着用。
-        // 同一个链接同时提交两次也不会建出两个账号，第二个会被邮箱的唯一约束挡住，返回 409
-        registrationLinkService.consume(request.token());
-        return user;
-    }
-
-    /**
-     * 用一个已经证明归属的邮箱建账号：注册链接、邀请链接都是发到这个邮箱的，能打开就说明邮箱是他的。
-     * 密码太常见抛 WEAK_PASSWORD（400），邮箱已被使用抛 EMAIL_ALREADY_USED（409）。
-     *
-     * <p>方法本身不加 @Transactional：Argon2 算一次要几十毫秒，在事务外面先算好哈希，
-     * 写库只有一条 INSERT，saveAndFlush 自己会开事务，算哈希时不占着数据库连接。
-     */
-    public AppUser createAccount(String email, String password, String name) {
-        // 密码规则见 PasswordBlocklist：不能是常见密码，也不能就是自己的邮箱。
-        // 这项检查要用到邮箱，而邮箱来自 token、不在请求里，所以在这里做，不在参数校验里做
-        if (passwordBlocklist.isBlocked(password, email)) {
-            throw new BusinessException(ErrorCode.WEAK_PASSWORD);
-        }
-        if (userRepository.existsByEmail(email)) {
-            throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
-        }
-        String passwordHash = passwordEncoder.encode(password);
-        try {
-            // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
-            return userRepository.saveAndFlush(new AppUser(email, passwordHash, name));
-        } catch (DataIntegrityViolationException e) {
-            // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
-            throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
-        }
-    }
-
-    /**
-     * 校验邮箱和密码，成功则签发 access token 和 refresh token。
-     * 邮箱不存在或密码错误，都抛 INVALID_CREDENTIALS（401）。
-     *
-     * <p>不加 @Transactional：查用户、签发 refresh token 各自开事务，中间算 Argon2 时不占着数据库连接。
+     * 凭邮件里的登录链接登录，签发 access token 和 refresh token。邮箱还没有账号时顺便建一个。
+     * 链接无效（不存在、过期、已用过）抛 INVALID_LOGIN_LINK（400）。
      */
     public TokenResponse login(LoginRequest request) {
-        String normalizedEmail = AppUser.normalizeEmail(request.email());
-        Optional<AppUser> found = userRepository.findByEmail(normalizedEmail);
-        // 邮箱不存在时也做一次密码比对：Argon2 故意算得很慢，如果只有邮箱存在时才比对，
-        // "邮箱不存在"的请求会明显更快返回，别人就能靠计时判断哪些邮箱注册过
-        String hash = found.map(AppUser::getPasswordHash).orElse(dummyPasswordHash);
-        boolean passwordMatches = passwordEncoder.matches(request.password(), hash);
-        AppUser user = found.filter(u -> passwordMatches)
-                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
-        return TokenResponse.of(tokenService.issueAccessToken(user), refreshTokenService.issue(user.getId()));
+        String email = loginLinkService.consume(request.token());
+        AppUser user = findOrCreateUser(email);
+        return issueTokens(user.getId());
+    }
+
+    /**
+     * 按邮箱找用户，没有就建一个，名字先用邮箱 @ 前面的部分，之后可以在 PATCH /api/me 里改。
+     * 只能用已经证明归属的邮箱调用：登录链接、邀请链接都是发到这个邮箱的，能打开就说明邮箱是他的。
+     *
+     * <p>不加 @Transactional：查询和 saveAndFlush 各自开事务。同一个新邮箱的两个请求同时到达时，
+     * 第二条 INSERT 被邮箱的唯一约束挡住，这时账号已经被第一个请求建好了，再查一次即可。
+     */
+    public AppUser findOrCreateUser(String email) {
+        return userRepository.findByEmail(email).orElseGet(() -> {
+            try {
+                return userRepository.saveAndFlush(new AppUser(email, email.substring(0, email.indexOf('@'))));
+            } catch (DataIntegrityViolationException e) {
+                return userRepository.findByEmail(email).orElseThrow();
+            }
+        });
+    }
+
+    /** 给这个用户签发一对新的 access token 和 refresh token。 */
+    public TokenResponse issueTokens(UUID userId) {
+        return TokenResponse.of(tokenService.issueAccessToken(userId), refreshTokenService.issue(userId));
     }
 
     /**
@@ -114,6 +78,14 @@ public class AuthService {
     /** 查当前登录的用户。token 有效但用户已经不存在时，抛 USER_NOT_FOUND（404）。 */
     public AppUser currentUser(UUID userId) {
         return userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+    }
+
+    /** 改当前用户的名字。不用调 save：用户是在这个事务里查出来的，提交时 JPA 会自动 UPDATE。 */
+    @Transactional
+    public AppUser rename(UUID userId, String name) {
+        AppUser user = currentUser(userId);
+        user.rename(name);
+        return user;
     }
 
     /** 退出登录。access token 是无状态的，只能等它在 15 分钟内自己过期；refresh token 立刻作废。 */

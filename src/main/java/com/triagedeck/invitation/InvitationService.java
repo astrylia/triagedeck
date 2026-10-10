@@ -11,13 +11,11 @@ import com.triagedeck.membership.MembershipService;
 import com.triagedeck.membership.Role;
 import com.triagedeck.organization.OrganizationRepository;
 import com.triagedeck.user.AppUser;
-import com.triagedeck.user.AppUserRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
@@ -29,7 +27,6 @@ public class InvitationService {
     private final InvitationRepository invitationRepository;
     private final MembershipService membershipService;
     private final MembershipRepository membershipRepository;
-    private final AppUserRepository appUserRepository;
     private final OrganizationRepository organizationRepository;
     private final AuthService authService;
     private final InvitationEmailSender emailSender;
@@ -40,7 +37,6 @@ public class InvitationService {
             InvitationRepository invitationRepository,
             MembershipService membershipService,
             MembershipRepository membershipRepository,
-            AppUserRepository appUserRepository,
             OrganizationRepository organizationRepository,
             AuthService authService,
             InvitationEmailSender emailSender,
@@ -49,7 +45,6 @@ public class InvitationService {
         this.invitationRepository = invitationRepository;
         this.membershipService = membershipService;
         this.membershipRepository = membershipRepository;
-        this.appUserRepository = appUserRepository;
         this.organizationRepository = organizationRepository;
         this.authService = authService;
         this.emailSender = emailSender;
@@ -61,8 +56,8 @@ public class InvitationService {
      * 创建一个邀请，并把邀请链接发到被邀请的邮箱。返回保存好的邀请（不含 token）。
      * 不是成员时 404（和查看组织一样），是成员但角色不够时 403。
      *
-     * <p>链接只发到邮箱、不返回给邀请人：能打开链接就证明是邮箱的主人，没账号的人可以直接在邀请页设密码加入
-     * （见 signUpAndAccept）。如果邀请人也能拿到链接，他就能替别人的邮箱建账号。
+     * <p>链接只发到邮箱、不返回给邀请人：能打开链接就证明是邮箱的主人，打开它就能加入并登录（见 accept）。
+     * 如果邀请人也能拿到链接，他就能冒充被邀请的人。
      *
      * <p>不加 @Transactional：写库只有一条 INSERT，save 自己会开事务。邮件在 INSERT 提交之后才发，
      * 不会出现"邮件发出去了、邀请却没存进数据库"。
@@ -87,21 +82,25 @@ public class InvitationService {
     }
 
     /**
-     * 当前用户凭 token 接受邀请，成为组织成员，返回新建的成员关系。
+     * 凭邀请链接加入组织，返回新建的成员关系。不需要先登录：链接只发到被邀请的邮箱，能打开就证明是邮箱的主人，
+     * 所以直接按邀请里的邮箱找到账号，没有账号就建一个。之后由控制器给这个账号签发 token，等于顺便登录。
      *
-     * <p>检查顺序：token 存在 → 当前用户的邮箱就是被邀请的邮箱 → 没用过 → 没过期 → 还不是成员。
-     * 链接只发到被邀请的邮箱，但邮件可能被转发，所以仍然核对登录账号的邮箱。账号的邮箱一定属于本人
-     * （注册、凭邀请建账号都要先打开发往这个邮箱的链接），别人没法冒领发给你的邀请。
-     * 先核对邮箱，再告诉对方"用过了 / 过期了"：别人捡到链接，也打听不到这个邀请的状态。
+     * <p>不加 @Transactional：建账号和加入组织各用一个事务。建账号时如果撞上邮箱的唯一约束（同一个新邮箱的两个请求同时到达），
+     * 所在的事务就不能再用了，所以它要在加入组织的事务外面做。万一账号建好了、加入组织失败，邀请没被标记为已使用，再点一次链接即可。
      */
-    @Transactional
-    public Membership accept(UUID userId, String token) {
+    public Membership accept(String token) {
+        // 先确认邀请还能用，再建账号：不然用一个过期的邀请也能建出账号
         Invitation invitation = findByToken(token);
-        AppUser user =
-                appUserRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        if (!user.getEmail().equals(invitation.getEmail())) {
-            throw new BusinessException(ErrorCode.INVITATION_EMAIL_MISMATCH);
-        }
+        requireUsable(invitation, Instant.now());
+        AppUser user = authService.findOrCreateUser(invitation.getEmail());
+        // join 是同一个类里的私有方法，没法用 @Transactional（Spring 的事务要经过代理才会开启），
+        // 所以用 TransactionTemplate 显式开一个事务：标记邀请已使用靠的是事务提交时自动 UPDATE
+        return transactionTemplate.execute(status -> join(user.getId(), token));
+    }
+
+    private Membership join(UUID userId, String token) {
+        // 在事务里重新查一次邀请：上面检查之后，可能有另一个请求刚用掉了它
+        Invitation invitation = findByToken(token);
         Instant now = Instant.now();
         requireUsable(invitation, now);
         if (membershipRepository.existsById(new MembershipId(userId, invitation.getOrgId()))) {
@@ -119,24 +118,6 @@ public class InvitationService {
         // 不用再调 save：invitation 是在这个事务里查出来的，提交时 JPA 会发现它被改过，自动 UPDATE
         invitation.markAccepted(now);
         return saved;
-    }
-
-    /**
-     * 还没有账号的人凭邀请链接建账号并加入组织，不用先走注册。链接是系统发到这个邮箱的，能打开就证明邮箱是他的，
-     * 所以账号的邮箱直接取邀请里的邮箱。邮箱已经注册过时返回 409 EMAIL_ALREADY_USED，前端提示他登录后再接受。
-     *
-     * <p>不加 @Transactional：建账号（AuthService.createAccount，Argon2 在事务外算）和加入组织各用一个事务。
-     * 万一账号建好了、加入组织失败，邀请还没被标记为已使用，他登录后照样可以接受，不会卡住。
-     */
-    public SignUpWithInvitationResponse signUpAndAccept(SignUpWithInvitationRequest request) {
-        // 先确认邀请还能用，再建账号：不然用一个过期的邀请也能建出账号，再告诉他"邀请过期了"
-        Invitation invitation = findByToken(request.token());
-        requireUsable(invitation, Instant.now());
-        AppUser user = authService.createAccount(invitation.getEmail(), request.password(), request.name());
-        // 直接调用同一个类里的 accept，它上面的 @Transactional 不生效（Spring 的事务要经过代理才会开启），
-        // 所以用 TransactionTemplate 显式开一个事务：标记邀请已使用靠的是事务提交时自动 UPDATE
-        Membership membership = transactionTemplate.execute(status -> accept(user.getId(), request.token()));
-        return SignUpWithInvitationResponse.from(user, membership);
     }
 
     private Invitation findByToken(String token) {

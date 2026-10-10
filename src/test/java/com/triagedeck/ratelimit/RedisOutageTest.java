@@ -38,25 +38,26 @@ class RedisOutageTest {
     GenericContainer<?> redisContainer;
 
     @Test
-    void loginIsAllowedQuicklyWhenRedisStopsResponding() throws Exception {
+    void loginLinkRequestIsAllowedQuicklyWhenRedisStopsResponding() throws Exception {
         // 先正常请求一次，确保应用已经连上 Redis
-        login().andExpect(status().isUnauthorized());
+        sendLink().andExpect(status().isNoContent());
 
         var docker = redisContainer.getDockerClient();
         String id = redisContainer.getContainerId();
         docker.pauseContainerCmd(id).exec();
         try {
-            // 登录要查两次 Redis（按 IP、按邮箱），每次最多等一个命令超时，再加上一次 Argon2
-            assertTimeoutPreemptively(Duration.ofSeconds(3), () -> login().andExpect(status().isUnauthorized()));
+            // 限流查一次 Redis，最多等一个命令超时；发信在后台线程里，不影响接口返回
+            assertTimeoutPreemptively(Duration.ofSeconds(3), () -> sendLink().andExpect(status().isNoContent()));
         } finally {
             docker.unpauseContainerCmd(id).exec();
         }
     }
 
-    private ResultActions login() throws Exception {
-        return mockMvc.perform(
-                post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"email": "nobody@acme.com", "password": "wrong-password-123"}
+    private ResultActions sendLink() throws Exception {
+        return mockMvc.perform(post("/api/auth/login-link")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email": "alice@acme.com"}
                         """));
     }
 }

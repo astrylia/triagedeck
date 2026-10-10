@@ -92,7 +92,7 @@ class OrganizationCreationFailureTest {
     }
 
     private AppUser saveUser(String email) {
-        return userRepository.saveAndFlush(new AppUser(email, "{noop}unused", "Test User"));
+        return userRepository.saveAndFlush(new AppUser(email, "Test User"));
     }
 
     private String tokenFor(AppUser user) {

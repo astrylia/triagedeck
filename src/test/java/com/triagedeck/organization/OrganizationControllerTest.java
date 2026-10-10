@@ -141,7 +141,7 @@ class OrganizationControllerTest {
 
     private AppUser saveUser(String email) {
         // 测试只需要一个已存在的用户和它的 token，不走注册接口，密码哈希随便填
-        return userRepository.saveAndFlush(new AppUser(email, "{noop}unused", "Test User"));
+        return userRepository.saveAndFlush(new AppUser(email, "Test User"));
     }
 
     private String tokenFor(AppUser user) {
