@@ -18,11 +18,9 @@ public enum ErrorCode {
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email already registered"),
     // 注册链接不存在、过期或已用过：前端的处理都一样，让用户重新获取
     INVALID_REGISTRATION_LINK(HttpStatus.BAD_REQUEST, "Registration link is invalid or expired; request a new one"),
-    // 密码太常见、太容易猜（规则见 PasswordBlocklist）。前端把它显示在密码输入框下面。
+    // 密码太常见，或者就是自己的邮箱（规则见 PasswordBlocklist）。前端把它显示在密码输入框下面。
     // 不放进 VALIDATION_FAILED：这项检查要用到 token 对应的邮箱，只能在 service 里做，参数校验那一步拿不到邮箱
-    WEAK_PASSWORD(
-            HttpStatus.BAD_REQUEST,
-            "Password is too common or too easy to guess (for example your email or name); choose another one"),
+    WEAK_PASSWORD(HttpStatus.BAD_REQUEST, "Password is too common or is the same as your email; choose another one"),
     // 组织不存在、或者当前用户不是它的成员，都用这一个：不让外人确认某个组织 id 是否存在
     ORG_NOT_FOUND(HttpStatus.NOT_FOUND, "Organization not found"),
     ORG_SLUG_ALREADY_USED(HttpStatus.CONFLICT, "Organization slug already taken"),

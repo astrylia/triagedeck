@@ -4,8 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -20,7 +18,6 @@ import org.springframework.stereotype.Component;
 public class PasswordBlocklist {
 
     private static final String RESOURCE = "security/common-passwords.txt";
-    private static final String SERVICE_NAME = "triagedeck";
 
     private final Set<String> commonPasswords;
 
@@ -38,47 +35,14 @@ public class PasswordBlocklist {
     }
 
     /**
-     * @param contextWords 和这个用户相关的词（邮箱、名字等），用户很可能直接拿它们当密码；可以为 null
+     * 密码在常见密码列表里，或者就是用户自己的邮箱，返回 true。比较时忽略大小写。
+     *
+     * <p>为什么单独拦邮箱：想猜某个人密码的人，第一个会试他的邮箱；很多邮箱本身就满 15 位，比如 zhangsan@qq.com。
+     *
+     * @param email 用户的邮箱，已经转成小写（见 AppUser.normalizeEmail）
      */
-    public boolean isBlocked(String password, String... contextWords) {
+    public boolean isBlocked(String password, String email) {
         String candidate = password.toLowerCase(Locale.ROOT);
-
-        // 规则 1：在常见密码列表里
-        if (commonPasswords.contains(candidate)) {
-            return true;
-        }
-
-        // 规则 2：同一个字符重复，比如 aaaaaaaaaaaaaaa
-        if (candidate.codePoints().distinct().count() == 1) {
-            return true;
-        }
-
-        // 规则 3：就是服务名、邮箱、名字，或者在它们前后加了数字、符号，比如 TriageDeck2026!!
-        // 做法：两边都只留下字母再比较
-        List<String> words = new ArrayList<>();
-        words.add(SERVICE_NAME);
-        for (String word : contextWords) {
-            if (word != null) {
-                words.add(word.toLowerCase(Locale.ROOT));
-            }
-        }
-        String candidateLetters = lettersOnly(candidate);
-        for (String word : words) {
-            if (candidate.equals(word)) {
-                return true;
-            }
-            String wordLetters = lettersOnly(word);
-            // 不含字母的词（比如邮箱 12345@qq.com 里的 12345）只留字母后是空串，不能拿来比较，
-            // 否则所有不含字母的密码都会被误拒
-            if (!wordLetters.isEmpty() && candidateLetters.equals(wordLetters)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** 去掉所有不是字母的字符。\p{L} 表示任何语言的字母，包括汉字。 */
-    private static String lettersOnly(String text) {
-        return text.replaceAll("[^\\p{L}]", "");
+        return commonPasswords.contains(candidate) || candidate.equals(email);
     }
 }

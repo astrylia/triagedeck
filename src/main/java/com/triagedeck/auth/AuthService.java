@@ -64,10 +64,9 @@ public class AuthService {
      * 写库只有一条 INSERT，saveAndFlush 自己会开事务，算哈希时不占着数据库连接。
      */
     public AppUser createAccount(String email, String password, String name) {
-        // 密码规则见 PasswordBlocklist：除了常见密码，还不能是自己的邮箱、邮箱 @ 前面的部分或名字。
+        // 密码规则见 PasswordBlocklist：不能是常见密码，也不能就是自己的邮箱。
         // 这项检查要用到邮箱，而邮箱来自 token、不在请求里，所以在这里做，不在参数校验里做
-        String emailLocalPart = email.substring(0, email.indexOf('@'));
-        if (passwordBlocklist.isBlocked(password, email, emailLocalPart, name)) {
+        if (passwordBlocklist.isBlocked(password, email)) {
             throw new BusinessException(ErrorCode.WEAK_PASSWORD);
         }
         if (userRepository.existsByEmail(email)) {
