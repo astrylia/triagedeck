@@ -58,11 +58,11 @@ public class SecurityConfig {
     PasswordEncoder passwordEncoder() {
         // 新密码用 Argon2id（OWASP 首选），存进数据库的值带 {argon2} 前缀。
         // 校验时按前缀选算法，所以以前存的 {bcrypt} 密码依然能登录，不需要迁移数据。
+        // 参数取 OWASP 给的最低配置：内存 19 MiB、迭代 2 次、并行度 1（Spring 自带的默认值只有 16 MiB）。
+        // 构造参数依次是盐长度、哈希长度（字节）、并行度、内存（KiB）、迭代次数。
+        // 参数会写进哈希里，校验时按哈希里的参数算，所以以前按 16 MiB 存的密码照样能登录。
         Map<String, PasswordEncoder> encoders = Map.of(
-                "argon2",
-                Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8(),
-                "bcrypt",
-                new BCryptPasswordEncoder());
+                "argon2", new Argon2PasswordEncoder(16, 32, 1, 19 * 1024, 2), "bcrypt", new BCryptPasswordEncoder());
         return new DelegatingPasswordEncoder("argon2", encoders);
     }
 

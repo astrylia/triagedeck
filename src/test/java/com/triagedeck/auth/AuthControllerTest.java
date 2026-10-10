@@ -26,6 +26,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -61,7 +62,9 @@ class AuthControllerTest {
         var saved = userRepository.findByEmail("alice@acme.com").orElseThrow();
         assertThat(saved.getPasswordHash())
                 .isNotEqualTo("correct-horse-battery")
-                .startsWith("{argon2}");
+                .startsWith("{argon2}")
+                // OWASP 的最低配置：内存 19 MiB（19456 KiB）、迭代 2 次、并行度 1
+                .contains("m=19456,t=2,p=1");
     }
 
     @Test
@@ -126,6 +129,16 @@ class AuthControllerTest {
         userRepository.save(new AppUser("legacy@acme.com", legacyHash, "Legacy"));
 
         login("legacy@acme.com", "old-password").andExpect(status().isOk());
+    }
+
+    @Test
+    void userHashedWithOlderArgon2ParametersCanStillLogIn() throws Exception {
+        // 模拟调参数之前注册的用户：哈希是按 Spring 默认的 16 MiB 算的
+        String olderHash = "{argon2}"
+                + Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8().encode("old-password");
+        userRepository.save(new AppUser("older@acme.com", olderHash, "Older"));
+
+        login("older@acme.com", "old-password").andExpect(status().isOk());
     }
 
     @Test
