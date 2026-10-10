@@ -1,10 +1,6 @@
 package com.triagedeck.auth.verification;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
+import com.triagedeck.common.Mailer;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,18 +11,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class RegistrationEmailSender {
 
-    private static final Logger log = LoggerFactory.getLogger(RegistrationEmailSender.class);
+    private final Mailer mailer;
 
-    private final JavaMailSender mailSender;
-    private final MailSettings settings;
-
-    public RegistrationEmailSender(JavaMailSender mailSender, MailSettings settings) {
-        this.mailSender = mailSender;
-        this.settings = settings;
+    public RegistrationEmailSender(Mailer mailer) {
+        this.mailer = mailer;
     }
 
     public void sendLink(String email, String link, long ttlMinutes) {
-        send(email, "Finish creating your TriageDeck account", """
+        mailer.send(email, "Finish creating your TriageDeck account", """
                 Open this link to set your password and finish creating your TriageDeck account:
 
                 %s
@@ -40,25 +32,11 @@ public class RegistrationEmailSender {
      * 知道自己已经有账号、直接去登录就行。
      */
     public void sendAlreadyRegistered(String email) {
-        send(email, "You already have a TriageDeck account", """
+        mailer.send(email, "You already have a TriageDeck account", """
                 Someone (hopefully you) tried to sign up for TriageDeck with this email address,
                 but an account with this address already exists. You can log in with your existing password.
 
                 If this wasn't you, you can ignore this email. Your account has not been changed.
                 """);
-    }
-
-    private void send(String to, String subject, String text) {
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(settings.from());
-        message.setTo(to);
-        message.setSubject(subject);
-        message.setText(text);
-        try {
-            mailSender.send(message);
-        } catch (MailException e) {
-            // 接口早就返回 204 了，这里只能记日志；用户收不到信，过了冷却时间可以再要一次
-            log.warn("Failed to send registration email to {}", to, e);
-        }
     }
 }

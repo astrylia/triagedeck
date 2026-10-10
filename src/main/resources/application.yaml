@@ -46,6 +46,9 @@ triagedeck:
     ttl: 1h
     # 同一个邮箱 60 秒内只发一次
     resend-cooldown: 60s
+  invitation:
+    # 邀请邮件里的链接指向前端的邀请页面：<url>?token=...
+    url: ${INVITATION_LINK_URL:http://localhost:5173/invitations}
   rate-limit:
     enabled: true
     # 这些数字没有标准可依（NIST、OWASP 都只给原则，不给"每分钟几次"），是按下面的思路估的：
@@ -58,6 +61,7 @@ triagedeck:
     login-per-email:
       limit: 10
       window: 1m
+    # 注册和凭邀请建账号（/api/invitations/signup）共用这个限额
     register-per-ip:
       limit: 100
       window: 1h

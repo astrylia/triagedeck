@@ -85,7 +85,8 @@ class InvitationAcceptTest {
 
     @AfterEach
     void deleteCommittedRows() {
-        JdbcTestUtils.deleteFromTables(jdbcTemplate, "invitation", "membership", "organization", "app_user");
+        JdbcTestUtils.deleteFromTables(
+                jdbcTemplate, "invitation", "membership", "refresh_token", "organization", "app_user");
     }
 
     @Test
@@ -183,12 +184,91 @@ class InvitationAcceptTest {
                 .andExpect(jsonPath("$.code").value("ALREADY_MEMBER"));
     }
 
+    @Test
+    void newcomerSetsAPasswordAndJoinsWithoutRegistering() throws Exception {
+        String token = invite("carol@new.com", Role.CUSTOMER, Duration.ofDays(7));
+
+        signUp(token, "correct-horse-battery")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.user.email").value("carol@new.com"))
+                .andExpect(jsonPath("$.orgId").value(orgId.toString()))
+                .andExpect(jsonPath("$.role").value("CUSTOMER"));
+
+        AppUser carol = userRepository.findByEmail("carol@new.com").orElseThrow();
+        assertThat(membershipRepository.findById(new MembershipId(carol.getId(), orgId)))
+                .get()
+                .extracting(Membership::getRole)
+                .isEqualTo(Role.CUSTOMER);
+        assertThat(invitationRepository.findByTokenHash(SecureTokens.hash(token)))
+                .get()
+                .extracting(Invitation::getAcceptedAt)
+                .isNotNull();
+        // 用刚设的密码就能登录
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                        {"email": "carol@new.com", "password": "correct-horse-battery"}
+                        """))
+                .andExpect(status().isOk());
+        // 邀请只能用一次
+        signUp(token, "correct-horse-battery")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVITATION_ALREADY_USED"));
+    }
+
+    @Test
+    void signUpWithAnEmailThatAlreadyHasAnAccountIsRejected() throws Exception {
+        // Bob 已经有账号：不能用邀请再建一个，前端提示他登录后接受
+        String token = inviteBob(Role.AGENT, Duration.ofDays(7));
+
+        signUp(token, "correct-horse-battery")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_USED"));
+
+        // 邀请没被用掉，登录后照样能接受
+        accept(bob, token).andExpect(status().isOk());
+    }
+
+    @Test
+    void weakPasswordDoesNotUseUpTheInvitation() throws Exception {
+        String token = invite("carol.newcomer@new.com", Role.AGENT, Duration.ofDays(7));
+
+        signUp(token, "Carol.Newcomer@new.com")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("WEAK_PASSWORD"));
+        assertThat(userRepository.findByEmail("carol.newcomer@new.com")).isEmpty();
+
+        signUp(token, "correct-horse-battery").andExpect(status().isCreated());
+    }
+
+    @Test
+    void expiredInvitationDoesNotCreateAnAccount() throws Exception {
+        String token = invite("carol@new.com", Role.AGENT, Duration.ofMinutes(-1));
+
+        signUp(token, "correct-horse-battery")
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("INVITATION_EXPIRED"));
+        assertThat(userRepository.findByEmail("carol@new.com")).isEmpty();
+    }
+
+    @Test
+    void signUpWithUnknownTokenGetsNotFound() throws Exception {
+        signUp(SecureTokens.generate(), "correct-horse-battery")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INVITATION_NOT_FOUND"));
+    }
+
     /** 直接往数据库里放一个发给 Bob 的邀请，返回原始 token。validFor 是负数就是已经过期的邀请。 */
     private String inviteBob(Role role, Duration validFor) {
+        return invite(bob.getEmail(), role, validFor);
+    }
+
+    /** 直接往数据库里放一个发给 email 的邀请，返回原始 token。 */
+    private String invite(String email, Role role, Duration validFor) {
         String token = SecureTokens.generate();
         invitationRepository.saveAndFlush(new Invitation(
                 orgId,
-                bob.getEmail(),
+                email,
                 role,
                 SecureTokens.hash(token),
                 alice.getId(),
@@ -211,5 +291,13 @@ class InvitationAcceptTest {
                 .content("""
                         {"token": "%s"}
                         """.formatted(token)));
+    }
+
+    private ResultActions signUp(String token, String password) throws Exception {
+        return mockMvc.perform(post("/api/invitations/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"token": "%s", "password": "%s", "name": "Carol"}
+                        """.formatted(token, password)));
     }
 }

@@ -45,28 +45,38 @@ public class AuthService {
 
     /**
      * 凭邮件里的注册链接注册新用户，返回保存后的 AppUser。邮箱由链接里的 token 决定，建出来的账号可以直接登录。
-     * 链接无效抛 INVALID_REGISTRATION_LINK（400），密码太常见抛 WEAK_PASSWORD（400），邮箱已被使用抛 EMAIL_ALREADY_USED（409）。
+     * 链接无效抛 INVALID_REGISTRATION_LINK（400），其余错误见 createAccount。
+     */
+    public AppUser register(RegisterRequest request) {
+        String email = registrationLinkService.emailFor(request.token());
+        AppUser user = createAccount(email, request.password(), request.name());
+        // 账号建好才删 token：前面任何一步不通过（比如密码太常见），链接都还能接着用。
+        // 同一个链接同时提交两次也不会建出两个账号，第二个会被邮箱的唯一约束挡住，返回 409
+        registrationLinkService.consume(request.token());
+        return user;
+    }
+
+    /**
+     * 用一个已经证明归属的邮箱建账号：注册链接、邀请链接都是发到这个邮箱的，能打开就说明邮箱是他的。
+     * 密码太常见抛 WEAK_PASSWORD（400），邮箱已被使用抛 EMAIL_ALREADY_USED（409）。
      *
      * <p>方法本身不加 @Transactional：Argon2 算一次要几十毫秒，在事务外面先算好哈希，
      * 写库只有一条 INSERT，saveAndFlush 自己会开事务，算哈希时不占着数据库连接。
      */
-    public AppUser register(RegisterRequest request) {
-        String email = registrationLinkService.emailFor(request.token());
+    public AppUser createAccount(String email, String password, String name) {
         // 密码规则见 PasswordBlocklist：除了常见密码，还不能是自己的邮箱、邮箱 @ 前面的部分或名字。
-        // 放在用掉 token 之前：密码不合格时链接还能用，用户换个密码重新提交就行
+        // 这项检查要用到邮箱，而邮箱来自 token、不在请求里，所以在这里做，不在参数校验里做
         String emailLocalPart = email.substring(0, email.indexOf('@'));
-        if (passwordBlocklist.isBlocked(request.password(), email, emailLocalPart, request.name())) {
+        if (passwordBlocklist.isBlocked(password, email, emailLocalPart, name)) {
             throw new BusinessException(ErrorCode.WEAK_PASSWORD);
         }
         if (userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);
         }
-        String passwordHash = passwordEncoder.encode(request.password());
-        // 前面的检查都过了才用掉 token：任何一步不通过，链接都还能接着用
-        registrationLinkService.consume(request.token());
+        String passwordHash = passwordEncoder.encode(password);
         try {
             // saveAndFlush：强制 INSERT 在这一行执行，唯一约束冲突的异常一定在 try 里抛出
-            return userRepository.saveAndFlush(new AppUser(email, passwordHash, request.name()));
+            return userRepository.saveAndFlush(new AppUser(email, passwordHash, name));
         } catch (DataIntegrityViolationException e) {
             // 并发兜底：两个请求同时通过了上面的检查，第二条 INSERT 被数据库唯一约束挡住
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_USED);

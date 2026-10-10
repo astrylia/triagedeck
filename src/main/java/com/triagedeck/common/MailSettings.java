@@ -1,4 +1,4 @@
-package com.triagedeck.auth.verification;
+package com.triagedeck.common;
 
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.context.properties.ConfigurationProperties;

@@ -81,7 +81,7 @@ public class RegistrationLinkService {
 
     /**
      * 查 token 对应的邮箱，不用掉 token。token 不存在、过期、已用过都抛 INVALID_REGISTRATION_LINK。
-     * 注册时要先拿到邮箱检查密码（不能拿自己邮箱当密码），密码不合格时链接还能继续用。
+     * 注册时先拿邮箱建账号，建好才用掉 token，所以中途失败（比如密码不合格）链接还能继续用。
      */
     public String emailFor(String token) {
         String email = redis.opsForValue().get(key(token));
@@ -91,14 +91,9 @@ public class RegistrationLinkService {
         return email;
     }
 
-    /**
-     * 用掉 token，之后这个链接就失效了。删除成功才算数：同一个链接被两个请求同时提交时，
-     * 两个都能通过 emailFor，但只有先删掉 token 的那个能继续注册。
-     */
+    /** 用掉 token，之后这个链接就失效了。账号建好之后调用（见 AuthService.register）。 */
     public void consume(String token) {
-        if (!Boolean.TRUE.equals(redis.delete(key(token)))) {
-            throw new BusinessException(ErrorCode.INVALID_REGISTRATION_LINK);
-        }
+        redis.delete(key(token));
     }
 
     private static String key(String token) {

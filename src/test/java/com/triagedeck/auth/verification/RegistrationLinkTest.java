@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.triagedeck.Mailpit;
 import com.triagedeck.TestcontainersConfiguration;
+import com.triagedeck.auth.AuthService;
+import com.triagedeck.auth.RegisterRequest;
 import com.triagedeck.common.BusinessException;
 import com.triagedeck.common.SecureTokens;
 import com.triagedeck.user.AppUserRepository;
@@ -61,6 +63,9 @@ class RegistrationLinkTest {
 
     @Autowired
     RegistrationLinkService registrationLinks;
+
+    @Autowired
+    AuthService authService;
 
     @Autowired
     AppUserRepository userRepository;
@@ -139,7 +144,7 @@ class RegistrationLinkTest {
     }
 
     @Test
-    void sameTokenConsumedConcurrentlyIsAcceptedOnlyOnce() throws Exception {
+    void sameLinkSubmittedConcurrentlyCreatesOnlyOneAccount() throws Exception {
         String token = registrationLinks.issueToken("alice@acme.com");
         int threads = 8;
         CountDownLatch start = new CountDownLatch(1);
@@ -148,7 +153,7 @@ class RegistrationLinkTest {
             Callable<Boolean> attempt = () -> {
                 start.await();
                 try {
-                    registrationLinks.consume(token);
+                    authService.register(new RegisterRequest(token, "correct-horse-battery", "Alice"));
                     return true;
                 } catch (BusinessException e) {
                     return false;
@@ -157,7 +162,7 @@ class RegistrationLinkTest {
             for (int i = 0; i < threads; i++) {
                 results.add(pool.submit(attempt));
             }
-            // 8 个线程同时放行，一起用同一个 token
+            // 8 个线程同时放行，一起用同一个链接注册
             start.countDown();
         }
 
@@ -168,6 +173,7 @@ class RegistrationLinkTest {
             }
         }
         assertThat(accepted).isEqualTo(1);
+        assertThat(userRepository.count()).isEqualTo(1);
     }
 
     @Test

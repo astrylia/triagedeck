@@ -6,7 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.jayway.jsonpath.JsonPath;
+import com.triagedeck.Mailpit;
 import com.triagedeck.TestcontainersConfiguration;
 import com.triagedeck.auth.token.TokenService;
 import com.triagedeck.common.SecureTokens;
@@ -21,6 +21,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Import(TestcontainersConfiguration.class)
 @Transactional
 class InvitationControllerTest {
+
+    private static final Pattern TOKEN = Pattern.compile("token=([A-Za-z0-9_-]{43})");
 
     @Autowired
     MockMvc mockMvc;
@@ -55,20 +59,27 @@ class InvitationControllerTest {
     @Autowired
     TokenService tokenService;
 
+    @Autowired
+    Mailpit mailpit;
+
     @Test
-    void ownerCanInviteAndOnlyTheTokenHashIsStored() throws Exception {
+    void ownerCanInviteAndTheLinkIsEmailedToTheInvitee() throws Exception {
         AppUser alice = saveUser("alice@acme.com");
         UUID orgId = saveOrganizationWith(alice, Role.OWNER);
+        mailpit.deleteAll();
 
-        String body = invite(alice, orgId, "Bob@Other.COM", "AGENT")
+        invite(alice, orgId, "Bob@Other.COM", "AGENT")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value("bob@other.com"))
                 .andExpect(jsonPath("$.role").value("AGENT"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                // 邀请人拿不到 token，链接只发到被邀请的邮箱
+                .andExpect(jsonPath("$.token").doesNotExist());
 
-        String token = JsonPath.read(body, "$.token");
+        String text = mailpit.awaitTextsSentTo("bob@other.com", 1).getFirst();
+        assertThat(text).contains("Acme").contains("AGENT").contains("http://localhost:5173/invitations?token=");
+        Matcher link = TOKEN.matcher(text);
+        assertThat(link.find()).isTrue();
+        String token = link.group(1);
         List<Invitation> saved = invitationRepository.findAll();
         assertThat(saved).hasSize(1);
         Invitation invitation = saved.getFirst();
